@@ -1,0 +1,10 @@
+{
+  "expo": {
+    "name": "mobile",
+    "slug": "mobile",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain"
+    }
+  }
+}

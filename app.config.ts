@@ -10,6 +10,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   scheme: "carereach",
   userInterfaceStyle: "light",
   newArchEnabled: true,
+
+  extra: {
+    eas: {
+      projectId: "4f2e69dd-375b-40b3-ae80-6b1d31554bdb",
+    },
+  },
+
   splash: {
     backgroundColor: "#9a3412",
   },
