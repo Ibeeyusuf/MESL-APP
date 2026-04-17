@@ -1,0 +1,41 @@
+export const Colors = {
+  primary: '#9a3412',       // orange-800
+  primaryDark: '#F97316',   // orange-900
+  primaryLight: '#ea580c',  // orange-600
+  primaryFaint: '#fff7ed',  // orange-50
+  primaryMuted: '#fed7aa',  // orange-200
+  white: '#ffffff',
+  black: '#111827',
+  gray50: '#f9fafb',
+  gray100: '#f3f4f6',
+  gray200: '#e5e7eb',
+  gray300: '#d1d5db',
+  gray400: '#9ca3af',
+  gray500: '#6b7280',
+  gray600: '#4b5563',
+  gray700: '#374151',
+  gray800: '#1f2937',
+  gray900: '#111827',
+  green50: '#f0fdf4',
+  green100: '#dcfce7',
+  green600: '#16a34a',
+  green700: '#15803d',
+  green800: '#166534',
+  red50: '#fef2f2',
+  red300: '#fca5a5',
+  red500: '#ef4444',
+  red600: '#dc2626',
+  indigo50: '#eef2ff',
+  indigo500: '#6366f1',
+  purple50: '#faf5ff',
+  purple500: '#a855f7',
+  orange50: '#fff7ed',
+  orange100: '#ffedd5',
+  orange200: '#fed7aa',
+  orange500: '#f97316',
+  orange600: '#ea580c',
+  orange700: '#c2410c',
+  orange800: '#9a3412',
+  orange900: '#F97316',
+  orange950: '#431407',
+};
