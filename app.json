@@ -5,6 +5,12 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain"
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "edcb943d-8464-4655-953a-dbad2988df0f"
+      }
     }
   }
 }
