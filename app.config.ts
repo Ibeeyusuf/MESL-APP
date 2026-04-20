@@ -2,12 +2,12 @@ import { ExpoConfig, ConfigContext } from "expo/config";
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: "CareReach Data",
-  slug: "carereach-mobile",
+  name: "MESL",
+  slug: "mesl-mobile",
   version: "1.0.0",
   orientation: "portrait",
   icon: "./assets/icon.png",
-  scheme: "carereach",
+  scheme: "mesl",
   userInterfaceStyle: "light",
   newArchEnabled: true,
 
@@ -22,13 +22,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   ios: {
     supportsTablet: true,
-    bundleIdentifier: "com.carereach.mobile",
+    bundleIdentifier: "com.mesl.mobile",
   },
   android: {
     adaptiveIcon: {
       backgroundColor: "#9a3412",
     },
-    package: "com.carereach.mobile",
+    package: "com.mesl.mobile",
   },
   plugins: ["expo-router", "expo-image-picker"],
 });
