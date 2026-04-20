@@ -105,8 +105,7 @@ export default function TabsLayout() {
     }
   }, [role]);
 
-  // Don't render if not authenticated (root layout will show login page)
-  if (isLoading || !isAuthenticated || !user || !role) return null;
+  if (isLoading || !isAuthenticated || !user || !role) return <View style={{ flex: 1, backgroundColor: '#f3f4f6' }} />;
 
   return (
     <Tabs

@@ -9,10 +9,10 @@ import {
   Image,
   Modal,
   Pressable,
-  SafeAreaView,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { api, type LoginPayload } from '@/services/api';
@@ -55,9 +55,17 @@ export default function LoginScreen() {
 
         // FIX: use signInAs from the API response, just like the web version does
         if (options.signInAs?.length) {
-          const opts = (options.signInAs as string[]).map((r) => ({ label: r, value: r }));
-          setRoleOptions(opts);
-          setRole(options.signInAs[0] as MobileRole);
+          const filteredRoles = (options.signInAs as string[]).filter(
+            (roleName) => roleName.trim().toLowerCase() !== 'super admin'
+          );
+
+          if (filteredRoles.length) {
+            const opts = filteredRoles.map((r) => ({ label: r, value: r }));
+            setRoleOptions(opts);
+            setRole(filteredRoles[0] as MobileRole);
+          } else {
+            setError('No mobile login roles available. Please contact support.');
+          }
         } else {
           setError('No role options available. Please contact support.');
         }

@@ -1,6 +1,7 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, BackHandler, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
 import { Colors } from '@/constants/theme';
 import type { User } from '@/types';
 
@@ -10,9 +11,28 @@ interface WelcomeHeaderProps {
 }
 
 export function WelcomeHeader({ user, onLogout }: WelcomeHeaderProps) {
-  const handleLogout = () => {
-    onLogout();
-    // Navigation handled by _layout.tsx effect when isAuthenticated becomes false
+  const confirmLogout = () => {
+    Alert.alert(
+      'Log out and close app',
+      'Are you sure you want to log out and close the app?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Yes',
+          style: 'destructive',
+          onPress: () => {
+            onLogout();
+
+            if (Platform.OS === 'android') {
+              BackHandler.exitApp();
+              return;
+            }
+
+            router.replace('/');
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -22,7 +42,7 @@ export function WelcomeHeader({ user, onLogout }: WelcomeHeaderProps) {
           <Text style={styles.greeting}>Welcome, {user?.name}</Text>
           <Text style={styles.roleText}>{user?.role} · {user?.centre.name}</Text>
         </View>
-        <TouchableOpacity onPress={handleLogout} style={styles.logoutBtn}>
+        <TouchableOpacity onPress={confirmLogout} style={styles.logoutBtn}>
           <Ionicons name="log-out-outline" size={22} color={Colors.white} />
         </TouchableOpacity>
       </View>
