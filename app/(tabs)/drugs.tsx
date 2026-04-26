@@ -54,14 +54,17 @@ const DURATION_OPTIONS = [
   { label: 'Ongoing', value: 'Ongoing' },
 ];
 
+// Roles that can access drug management (Admin manages stock, Doctor prescribes)
+const ALLOWED_ROLES = ['Admin', 'Doctor', 'Anesthetist'];
+
 export default function DrugsScreen() {
   const params = useLocalSearchParams<{ patientId?: string }>();
   const { user } = useAuth();
   const isAdminView = user?.role === 'Admin';
 
-  // Guard — Admin only
+  // Guard — Admin, Doctor, Anesthetist only
   useEffect(() => {
-    if (user && user.role !== 'Admin') router.replace('/(tabs)/');
+    if (user && !ALLOWED_ROLES.includes(user.role)) router.replace('/(tabs)/');
   }, [user]);
 
   const [activeTab, setActiveTab] = useState<TabMode>('prescribe');
@@ -74,10 +77,8 @@ export default function DrugsScreen() {
   const [itemErrors, setItemErrors] = useState<Record<number, Record<string, string>>>({});
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState('');
-  // Admin: marking issued
   const [issuingKeys, setIssuingKeys] = useState<string[]>([]);
   const [issuedKeys, setIssuedKeys] = useState<string[]>([]);
-  // Admin: stock editing
   const [editingStockId, setEditingStockId] = useState<string | null>(null);
   const [stockInputValue, setStockInputValue] = useState('');
   const [updatingStockId, setUpdatingStockId] = useState<string | null>(null);
@@ -170,7 +171,6 @@ export default function DrugsScreen() {
     } finally { setSubmitting(false); }
   };
 
-  // Admin: mark prescription item as issued
   const handleMarkAsIssued = async (prescriptionId: string, drugId: string, index: number) => {
     const key = `${prescriptionId}-${index}`;
     setIssuingKeys(prev => [...prev, key]);
@@ -185,7 +185,6 @@ export default function DrugsScreen() {
     } finally { setIssuingKeys(prev => prev.filter(k => k !== key)); }
   };
 
-  // Admin: update drug stock
   const handleUpdateStock = async (drugId: string) => {
     const newStock = Number(stockInputValue);
     if (isNaN(newStock) || newStock < 0) { Alert.alert('Invalid', 'Enter a valid quantity'); return; }
@@ -224,7 +223,7 @@ export default function DrugsScreen() {
           </View>
         )}
 
-        {/* Tab row — matches web: "Issued Drugs" / "Stock Management" */}
+        {/* Tab row */}
         <View style={styles.tabRow}>
           <TouchableOpacity
             style={[styles.tabBtn, activeTab === 'prescribe' && styles.tabBtnActive]}
@@ -233,21 +232,23 @@ export default function DrugsScreen() {
             <Ionicons name="document-text-outline" size={16} color={activeTab === 'prescribe' ? Colors.orange600 : Colors.gray500} />
             <Text style={[styles.tabBtnText, activeTab === 'prescribe' && styles.tabBtnTextActive]}>Issued Drugs</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tabBtn, activeTab === 'stock' && styles.tabBtnActive]}
-            onPress={() => setActiveTab('stock')}
-          >
-            <Ionicons name="cube-outline" size={16} color={activeTab === 'stock' ? Colors.orange600 : Colors.gray500} />
-            <Text style={[styles.tabBtnText, activeTab === 'stock' && styles.tabBtnTextActive]}>Stock Management</Text>
-            {lowStock.length > 0 && (
-              <View style={styles.tabBadge}><Text style={styles.tabBadgeText}>{lowStock.length}</Text></View>
-            )}
-          </TouchableOpacity>
+          {/* Stock Management tab — visible to Admin only */}
+          {isAdminView && (
+            <TouchableOpacity
+              style={[styles.tabBtn, activeTab === 'stock' && styles.tabBtnActive]}
+              onPress={() => setActiveTab('stock')}
+            >
+              <Ionicons name="cube-outline" size={16} color={activeTab === 'stock' ? Colors.orange600 : Colors.gray500} />
+              <Text style={[styles.tabBtnText, activeTab === 'stock' && styles.tabBtnTextActive]}>Stock Management</Text>
+              {lowStock.length > 0 && (
+                <View style={styles.tabBadge}><Text style={styles.tabBadgeText}>{lowStock.length}</Text></View>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
 
         {activeTab === 'prescribe' ? (
           <>
-            {/* "1. Select Patient" section — matches web layout */}
             <View style={styles.sectionBox}>
               <Text style={styles.sectionLabel}>1. Select Patient</Text>
               <PatientSelector selectedPatient={patient} onSelectPatient={setPatient} />
@@ -262,7 +263,7 @@ export default function DrugsScreen() {
                   </View>
                 ) : null}
 
-                {/* Prescription form hidden for Admin — Admin only marks as issued */}
+                {/* Prescription form — shown for non-Admin (Doctor/Anesthetist) */}
                 {!isAdminView && (
                   <>
                     {items.length === 0 ? (
@@ -333,7 +334,6 @@ export default function DrugsScreen() {
                           </Text>
                           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
                             <Text style={{ fontSize: 10, color: Colors.gray400 }}>By {rx.prescribedBy}</Text>
-                            {/* Admin: Mark As Issued */}
                             {isAdminView && (
                               isIssued ? (
                                 <View style={styles.issuedBadge}>
@@ -360,7 +360,7 @@ export default function DrugsScreen() {
             )}
           </>
         ) : (
-          /* Stock Management Tab */
+          /* Stock Management Tab — Admin only */
           <View style={styles.stockCard}>
             <View style={styles.historyHeader}>
               <Text style={styles.historyTitle}>Drug Inventory</Text>
@@ -412,16 +412,13 @@ export default function DrugsScreen() {
                         ) : (
                           <Text style={{ fontSize: 10, color: Colors.green600, fontWeight: '600' }}>In Stock</Text>
                         )}
-                        {/* Admin: update stock button */}
-                        {isAdminView && (
-                          <TouchableOpacity
-                            style={styles.editStockBtn}
-                            onPress={() => { setEditingStockId(d.id); setStockInputValue(String(d.currentStock)); }}
-                          >
-                            <Ionicons name="pencil-outline" size={12} color={Colors.orange600} />
-                            <Text style={styles.editStockText}>Update</Text>
-                          </TouchableOpacity>
-                        )}
+                        <TouchableOpacity
+                          style={styles.editStockBtn}
+                          onPress={() => { setEditingStockId(d.id); setStockInputValue(String(d.currentStock)); }}
+                        >
+                          <Ionicons name="pencil-outline" size={12} color={Colors.orange600} />
+                          <Text style={styles.editStockText}>Update</Text>
+                        </TouchableOpacity>
                       </>
                     )}
                   </View>

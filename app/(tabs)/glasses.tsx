@@ -27,7 +27,6 @@ const PURPOSE_OPTIONS = [
 export default function GlassesScreen() {
   const params = useLocalSearchParams<{ patientId?: string }>();
   const { user } = useAuth();
-  const isAdminView = user?.role === 'Admin';
 
   // Guard — Admin only
   useEffect(() => {
@@ -50,7 +49,6 @@ export default function GlassesScreen() {
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState('');
-  // Admin: mark as issued state
   const [issuingIds, setIssuingIds] = useState<string[]>([]);
   const [issuedIds, setIssuedIds] = useState<string[]>([]);
 
@@ -159,7 +157,6 @@ export default function GlassesScreen() {
     } finally { setSubmitting(false); }
   };
 
-  // Admin: mark eyeglasses issuance as issued
   const handleMarkAsIssued = async (issuanceId: string) => {
     const issuance = patientIssuances.find(e => e.id === issuanceId);
     if (!issuance) return;
@@ -233,7 +230,6 @@ export default function GlassesScreen() {
 
         {activeTab === 'issue' ? (
           <>
-            {/* "1. Select Patient" — matches web */}
             <View style={styles.sectionBox}>
               <Text style={styles.sectionLabel}>1. Select Patient</Text>
               <PatientSelector selectedPatient={patient} onSelectPatient={setPatient} />
@@ -245,49 +241,45 @@ export default function GlassesScreen() {
                   <View style={styles.successBox}><Ionicons name="checkmark-circle" size={18} color={Colors.green700} /><Text style={styles.successText}>{success}</Text></View>
                 ) : null}
 
-                {/* Issue form — hidden for Admin (Admin only marks as issued) */}
-                {!isAdminView && (
-                  <>
-                    <View style={styles.card}>
-                      <Text style={styles.sectionTitle}>Issue Eyeglasses</Text>
-                      <PickerModal label="Eyeglasses *" value={form.eyeglassesItemId} options={glassesOptions} onChange={v => handleChange('eyeglassesItemId', v)} error={errors.eyeglassesItemId} />
-                      <View style={{ height: 8 }} />
-                      <View style={styles.row}>
-                        <View style={{ flex: 1 }}><Field label="Quantity *" value={form.quantity} onChange={v => handleChange('quantity', v)} error={errors.quantity} keyboardType="numeric" /></View>
-                        <View style={{ flex: 1 }}><PickerModal label="Purpose" value={form.purpose} options={PURPOSE_OPTIONS} onChange={v => handleChange('purpose', v)} /></View>
-                      </View>
-                    </View>
+                {/* Issue form — Admin is the only role here, so always show it */}
+                <View style={styles.card}>
+                  <Text style={styles.sectionTitle}>Issue Eyeglasses</Text>
+                  <PickerModal label="Eyeglasses *" value={form.eyeglassesItemId} options={glassesOptions} onChange={v => handleChange('eyeglassesItemId', v)} error={errors.eyeglassesItemId} />
+                  <View style={{ height: 8 }} />
+                  <View style={styles.row}>
+                    <View style={{ flex: 1 }}><Field label="Quantity *" value={form.quantity} onChange={v => handleChange('quantity', v)} error={errors.quantity} keyboardType="numeric" /></View>
+                    <View style={{ flex: 1 }}><PickerModal label="Purpose" value={form.purpose} options={PURPOSE_OPTIONS} onChange={v => handleChange('purpose', v)} /></View>
+                  </View>
+                </View>
 
-                    <View style={styles.card}>
-                      <Text style={styles.sectionTitle}>Prescription (Optional)</Text>
-                      <Text style={styles.eyeLabel}>Right Eye (OD)</Text>
-                      <View style={styles.row}>
-                        <View style={{ flex: 1 }}><Field label="Sphere" value={form.sphereRight} onChange={v => handleChange('sphereRight', v)} keyboardType="numeric" placeholder="-2.50" /></View>
-                        <View style={{ flex: 1 }}><Field label="Cylinder" value={form.cylinderRight} onChange={v => handleChange('cylinderRight', v)} keyboardType="numeric" placeholder="-0.75" /></View>
-                        <View style={{ flex: 1 }}><Field label="Axis" value={form.axisRight} onChange={v => handleChange('axisRight', v)} keyboardType="numeric" placeholder="180" /></View>
-                      </View>
-                      <Text style={[styles.eyeLabel, { marginTop: 8 }]}>Left Eye (OS)</Text>
-                      <View style={styles.row}>
-                        <View style={{ flex: 1 }}><Field label="Sphere" value={form.sphereLeft} onChange={v => handleChange('sphereLeft', v)} keyboardType="numeric" placeholder="-2.25" /></View>
-                        <View style={{ flex: 1 }}><Field label="Cylinder" value={form.cylinderLeft} onChange={v => handleChange('cylinderLeft', v)} keyboardType="numeric" placeholder="-0.50" /></View>
-                        <View style={{ flex: 1 }}><Field label="Axis" value={form.axisLeft} onChange={v => handleChange('axisLeft', v)} keyboardType="numeric" placeholder="170" /></View>
-                      </View>
-                      <View style={{ marginTop: 8, width: '50%' }}>
-                        <Field label="PD (mm)" value={form.pd} onChange={v => handleChange('pd', v)} keyboardType="numeric" placeholder="63" />
-                      </View>
-                    </View>
+                <View style={styles.card}>
+                  <Text style={styles.sectionTitle}>Prescription (Optional)</Text>
+                  <Text style={styles.eyeLabel}>Right Eye (OD)</Text>
+                  <View style={styles.row}>
+                    <View style={{ flex: 1 }}><Field label="Sphere" value={form.sphereRight} onChange={v => handleChange('sphereRight', v)} keyboardType="numeric" placeholder="-2.50" /></View>
+                    <View style={{ flex: 1 }}><Field label="Cylinder" value={form.cylinderRight} onChange={v => handleChange('cylinderRight', v)} keyboardType="numeric" placeholder="-0.75" /></View>
+                    <View style={{ flex: 1 }}><Field label="Axis" value={form.axisRight} onChange={v => handleChange('axisRight', v)} keyboardType="numeric" placeholder="180" /></View>
+                  </View>
+                  <Text style={[styles.eyeLabel, { marginTop: 8 }]}>Left Eye (OS)</Text>
+                  <View style={styles.row}>
+                    <View style={{ flex: 1 }}><Field label="Sphere" value={form.sphereLeft} onChange={v => handleChange('sphereLeft', v)} keyboardType="numeric" placeholder="-2.25" /></View>
+                    <View style={{ flex: 1 }}><Field label="Cylinder" value={form.cylinderLeft} onChange={v => handleChange('cylinderLeft', v)} keyboardType="numeric" placeholder="-0.50" /></View>
+                    <View style={{ flex: 1 }}><Field label="Axis" value={form.axisLeft} onChange={v => handleChange('axisLeft', v)} keyboardType="numeric" placeholder="170" /></View>
+                  </View>
+                  <View style={{ marginTop: 8, width: '50%' }}>
+                    <Field label="PD (mm)" value={form.pd} onChange={v => handleChange('pd', v)} keyboardType="numeric" placeholder="63" />
+                  </View>
+                </View>
 
-                    <View style={styles.card}>
-                      <Field label="Notes (Optional)" value={form.notes} onChange={v => handleChange('notes', v)} multiline placeholder="Additional notes..." />
-                    </View>
+                <View style={styles.card}>
+                  <Field label="Notes (Optional)" value={form.notes} onChange={v => handleChange('notes', v)} multiline placeholder="Additional notes..." />
+                </View>
 
-                    <TouchableOpacity style={[styles.submitBtn, submitting && { opacity: 0.6 }]} onPress={handleSubmit} disabled={submitting}>
-                      {submitting ? <ActivityIndicator color={Colors.white} /> : <Text style={styles.submitText}>Issue Eyeglasses</Text>}
-                    </TouchableOpacity>
-                  </>
-                )}
+                <TouchableOpacity style={[styles.submitBtn, submitting && { opacity: 0.6 }]} onPress={handleSubmit} disabled={submitting}>
+                  {submitting ? <ActivityIndicator color={Colors.white} /> : <Text style={styles.submitText}>Issue Eyeglasses</Text>}
+                </TouchableOpacity>
 
-                {/* Patient's Glasses History — matches web title */}
+                {/* Patient Glasses History with Mark As Issued */}
                 {patientIssuances.length > 0 && (
                   <View style={styles.historyCard}>
                     <View style={styles.historyHeader}>
@@ -306,22 +298,19 @@ export default function GlassesScreen() {
                             </View>
                             <View style={{ alignItems: 'flex-end', gap: 4 }}>
                               <Text style={styles.historyDate}>{new Date(iss.issuedAt).toLocaleDateString()}</Text>
-                              {/* Admin: Mark As Issued */}
-                              {isAdminView && (
-                                isIssued ? (
-                                  <View style={styles.issuedBadge}>
-                                    <Ionicons name="checkmark-circle" size={12} color={Colors.green700} />
-                                    <Text style={styles.issuedText}>Issued</Text>
-                                  </View>
-                                ) : (
-                                  <TouchableOpacity
-                                    style={[styles.markIssuedBtn, isIssuing && { opacity: 0.6 }]}
-                                    onPress={() => handleMarkAsIssued(iss.id)}
-                                    disabled={isIssuing}
-                                  >
-                                    <Text style={styles.markIssuedText}>{isIssuing ? 'Updating...' : 'Mark As Issued'}</Text>
-                                  </TouchableOpacity>
-                                )
+                              {isIssued ? (
+                                <View style={styles.issuedBadge}>
+                                  <Ionicons name="checkmark-circle" size={12} color={Colors.green700} />
+                                  <Text style={styles.issuedText}>Issued</Text>
+                                </View>
+                              ) : (
+                                <TouchableOpacity
+                                  style={[styles.markIssuedBtn, isIssuing && { opacity: 0.6 }]}
+                                  onPress={() => handleMarkAsIssued(iss.id)}
+                                  disabled={isIssuing}
+                                >
+                                  <Text style={styles.markIssuedText}>{isIssuing ? 'Updating...' : 'Mark As Issued'}</Text>
+                                </TouchableOpacity>
                               )}
                             </View>
                           </View>
@@ -363,7 +352,6 @@ export default function GlassesScreen() {
             ))}
           </View>
         ) : (
-          /* All Issuance History */
           <View style={styles.stockCard}>
             <View style={styles.historyHeader}>
               <Text style={styles.historyTitle}>All Issuance Records</Text>
@@ -423,10 +411,10 @@ const styles = StyleSheet.create({
   alertBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: Colors.orange50, borderRadius: 0, borderLeftWidth: 4, borderLeftColor: Colors.orange400, padding: 12, marginBottom: 12 },
   alertTitle: { fontSize: 13, fontWeight: '700', color: Colors.orange800, marginBottom: 2 },
   alertText: { fontSize: 12, color: Colors.orange700 },
-  tabRow: { flexDirection: 'column', gap: 0, marginBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.gray200 },
-  tabBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 14, borderBottomWidth: 2, borderBottomColor: 'transparent' },
+  tabRow: { flexDirection: 'row', marginBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.gray200 },
+  tabBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 14, borderBottomWidth: 2, borderBottomColor: 'transparent' },
   tabBtnActive: { borderBottomColor: Colors.orange500 },
-  tabBtnText: { fontSize: 13, fontWeight: '600', color: Colors.gray500 },
+  tabBtnText: { fontSize: 11, fontWeight: '600', color: Colors.gray500 },
   tabBtnTextActive: { color: Colors.orange600 },
   tabBadge: { backgroundColor: Colors.red100, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 10 },
   tabBadgeText: { fontSize: 10, fontWeight: '700', color: Colors.red800 },

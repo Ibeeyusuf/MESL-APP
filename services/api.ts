@@ -144,5 +144,9 @@ export const api = {
       apiRequest(`/reports/va-outcomes${params ? `?${params}` : ''}`, 'GET'),
     followUpCompliance: (params = '') =>
       apiRequest(`/reports/follow-up-compliance${params ? `?${params}` : ''}`, 'GET'),
+    drugsInventory: (params = '') =>
+      apiRequest(`/reports/drugs-inventory${params ? `?${params}` : ''}`, 'GET'),
+    glassesInventory: (params = '') =>
+      apiRequest(`/reports/glasses-inventory${params ? `?${params}` : ''}`, 'GET'),
   },
 };

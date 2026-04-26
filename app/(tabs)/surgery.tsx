@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, ScrollView, Switch,
+  View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -16,28 +16,32 @@ import {
 } from '@/utils/helpers';
 import type { Patient, SurgeryRecord, StaffMember } from '@/types';
 
+// Matches web version surgery types exactly
 const SURGERY_TYPES = [
-  'SICS (Small Incision Cataract Surgery)',
-  'Phacoemulsification',
-  'ECCE (Extracapsular Cataract Extraction)',
-  'ICCE (Intracapsular Cataract Extraction)',
-  'Trabeculectomy',
+  'SICS + PCIOL',
+  'SICS + ACIOL',
+  'SICS NO IOL',
+  'ICCE',
   'Pterygium Excision',
-  'Lid Surgery',
-  'DCR (Dacryocystorhinostomy)',
-  'Evisceration/Enucleation',
+  'Chalazion I/C',
   'Other',
 ];
 
-const IOL_TYPES = [
-  'PMMA (Polymethyl Methacrylate)',
-  'Foldable Acrylic',
-  'Foldable Hydrophilic',
-  'Foldable Hydrophobic',
-  'AC IOL (Anterior Chamber)',
-  'Scleral Fixated IOL',
-  'None/Not Applicable',
+// Matches web version IOL types (PC/AC only)
+const IOL_TYPE_OPTIONS = [
+  { label: 'Select type', value: '' },
+  { label: 'PC (Posterior Chamber)', value: 'PC' },
+  { label: 'AC (Anterior Chamber)', value: 'AC' },
 ];
+
+// IOL Power options 11–23 in 0.5 increments — matches web version select dropdown
+const IOL_POWER_OPTIONS = (() => {
+  const opts = [{ label: 'Select power', value: '' }];
+  for (let i = 11; i <= 23; i += 0.5) {
+    opts.push({ label: String(i % 1 === 0 ? i : i.toFixed(1)), value: String(i % 1 === 0 ? i : i.toFixed(1)) });
+  }
+  return opts;
+})();
 
 const EYE_OPTIONS = [
   { label: 'Select eye', value: '' },
@@ -53,6 +57,141 @@ const ANESTHESIA_OPTIONS = [
   { label: 'Topical', value: 'Topical' },
 ];
 
+// Health Practitioner — matches web dropdown
+const PRACTITIONER_OPTIONS = [
+  { label: 'Select practitioner', value: '' },
+  { label: 'Ibrahim Wambai', value: 'Ibrahim Wambai' },
+  { label: 'Nasiru Usman', value: 'Nasiru Usman' },
+  { label: 'Adamu Mohammed', value: 'Adamu Mohammed' },
+  { label: 'Murtala Umar', value: 'Murtala Umar' },
+];
+
+// Complication options — matches web COMPLICATION_OPTIONS exactly
+const COMPLICATION_OPTIONS = [
+  { label: 'Select a complication', value: '' },
+  { label: 'Premature Entry', value: 'Premature Entry' },
+  { label: 'Descemet Strip', value: 'Descemet Strip' },
+  { label: 'Iris Injury', value: 'Iris Injury' },
+  { label: 'Surgical Hyphema', value: 'Surgical Hyphema' },
+  { label: 'PC Rent without Vitreous Loss', value: 'PC Rent without Vitreous Loss' },
+  { label: 'PC Rent with Vitreous Loss', value: 'PC Rent with Vitreous Loss' },
+  { label: 'Displaced IOL', value: 'Displaced IOL' },
+  { label: 'Nucleus/Significant Lens Fragment In Vitreous', value: 'Nucleus/Significant Lens Fragment In Vitreous' },
+  { label: 'Others', value: 'Others' },
+];
+
+// Surgical findings — matches web SURGICAL_FINDINGS_OPTIONS exactly
+const SURGICAL_FINDINGS_OPTIONS = [
+  { label: 'Select a surgical finding', value: '' },
+  { label: 'Zonular Dialysis', value: 'Zonular Dialysis' },
+  { label: 'Subluxated Lens', value: 'Subluxated Lens' },
+  { label: 'PCO', value: 'PCO' },
+  { label: 'Posterior Synaechia', value: 'Posterior Synaechia' },
+  { label: 'Others', value: 'Others' },
+];
+
+// Surgery types that require IOL details
+const IOL_SURGERY_TYPES = ['SICS + PCIOL', 'SICS + ACIOL'];
+
+// ── Surgery History Table — matches web SurgeryHistoryTable exactly ──
+function SurgeryHistoryTable({ records }: { records: SurgeryRecord[] }) {
+  const formatDate = (d: string) =>
+    new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+
+  if (records.length === 0) {
+    return (
+      <View style={tableStyles.empty}>
+        <Ionicons name="pulse" size={36} color={Colors.gray300} />
+        <Text style={tableStyles.emptyTitle}>No surgery records</Text>
+        <Text style={tableStyles.emptyText}>
+          This patient does not have any recorded surgeries yet.
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <View>
+      {/* Column headers */}
+      <View style={tableStyles.headerRow}>
+        <Text style={[tableStyles.headerCell, { flex: 1.4 }]}>DATE</Text>
+        <Text style={[tableStyles.headerCell, { flex: 2 }]}>PROCEDURE</Text>
+        <Text style={[tableStyles.headerCell, { flex: 0.8 }]}>EYE</Text>
+        <Text style={[tableStyles.headerCell, { flex: 0.7 }]}>DURATION</Text>
+        <Text style={[tableStyles.headerCell, { flex: 1.6 }]}>SURGEON</Text>
+        <Text style={[tableStyles.headerCell, { flex: 1.2 }]}>STATUS</Text>
+      </View>
+
+      {records.map((record, idx) => (
+        <View
+          key={record.id}
+          style={[
+            tableStyles.dataRow,
+            idx % 2 === 0 ? { backgroundColor: Colors.white } : { backgroundColor: Colors.gray50 },
+          ]}
+        >
+          {/* Date */}
+          <View style={[tableStyles.cell, { flex: 1.4 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Ionicons name="time-outline" size={13} color={Colors.gray400} />
+              <Text style={tableStyles.cellText}>{formatDate(record.surgeryDate)}</Text>
+            </View>
+          </View>
+
+          {/* Procedure + anesthesia */}
+          <View style={[tableStyles.cell, { flex: 2 }]}>
+            <Text style={[tableStyles.cellText, { fontWeight: '600' }]} numberOfLines={2}>
+              {record.procedureType}
+            </Text>
+            {record.anesthesiaType ? (
+              <Text style={tableStyles.cellSub}>{record.anesthesiaType} anesthesia</Text>
+            ) : null}
+          </View>
+
+          {/* Eye badge */}
+          <View style={[tableStyles.cell, { flex: 0.8 }]}>
+            <View style={tableStyles.eyeBadge}>
+              <Text style={tableStyles.eyeBadgeText}>{record.eyeOperated}</Text>
+            </View>
+          </View>
+
+          {/* Duration */}
+          <View style={[tableStyles.cell, { flex: 0.7 }]}>
+            <Text style={tableStyles.cellText}>{record.durationMinutes} min</Text>
+          </View>
+
+          {/* Surgeon + Nurse */}
+          <View style={[tableStyles.cell, { flex: 1.6 }]}>
+            <Text style={tableStyles.cellText} numberOfLines={1}>
+              {record.surgeon?.name ?? '—'}
+            </Text>
+            {record.scrubNurse?.name ? (
+              <Text style={tableStyles.cellSub} numberOfLines={1}>
+                Nurse: {record.scrubNurse.name}
+              </Text>
+            ) : null}
+          </View>
+
+          {/* Status */}
+          <View style={[tableStyles.cell, { flex: 1.2 }]}>
+            {record.hasComplications ? (
+              <View style={tableStyles.compBadge}>
+                <Ionicons name="alert-circle" size={11} color="#991B1B" style={{ marginRight: 3 }} />
+                <Text style={tableStyles.compBadgeText}>Complications</Text>
+              </View>
+            ) : (
+              <View style={tableStyles.successBadge}>
+                <Ionicons name="checkmark-circle" size={11} color="#166534" style={{ marginRight: 3 }} />
+                <Text style={tableStyles.successBadgeText}>Successful</Text>
+              </View>
+            )}
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export default function SurgeryScreen() {
   const { user } = useAuth();
   const params = useLocalSearchParams<{ patientId?: string }>();
@@ -61,20 +200,26 @@ export default function SurgeryScreen() {
   useEffect(() => {
     if (user && user.role !== 'Doctor') router.replace('/(tabs)/');
   }, [user]);
+
   const [patient, setPatient] = useState<Patient | null>(null);
   const [hasSurgeryRec, setHasSurgeryRec] = useState(false);
   const [checkingRec, setCheckingRec] = useState(false);
   const [form, setForm] = useState({
     surgeryDate: getTodayDate(),
+    healthPractitioner: '',
     surgeryType: '',
+    surgeryOthers: '',
     iolType: '',
+    iolPowerRight: '',
+    iolPowerLeft: '',
     eyeOperated: '',
     anesthesiaType: '',
     durationMinutes: '',
-    iolPowerRight: '',
-    iolPowerLeft: '',
     hasComplications: false,
-    complicationDetails: '',
+    complication: '',
+    complicationOthers: '',
+    surgicalFinding: '',
+    surgicalFindingOthers: '',
     notes: '',
     surgeonId: '',
     scrubNurseId: '',
@@ -88,7 +233,6 @@ export default function SurgeryScreen() {
   const [nurses, setNurses] = useState<StaffMember[]>([]);
   const [anesthetists, setAnesthetists] = useState<StaffMember[]>([]);
 
-  // Load patient from deep link
   useEffect(() => {
     if (params.patientId && !patient) {
       (async () => {
@@ -100,7 +244,6 @@ export default function SurgeryScreen() {
     }
   }, [params.patientId]);
 
-  // Load staff
   useEffect(() => {
     (async () => {
       try {
@@ -113,7 +256,6 @@ export default function SurgeryScreen() {
     })();
   }, []);
 
-  // Check surgery recommendation + load history
   useEffect(() => {
     if (!patient) { setHistory([]); setHasSurgeryRec(false); return; }
     (async () => {
@@ -134,10 +276,13 @@ export default function SurgeryScreen() {
 
   const resetForm = () => {
     setForm({
-      surgeryDate: getTodayDate(), surgeryType: '', iolType: '',
+      surgeryDate: getTodayDate(), healthPractitioner: '',
+      surgeryType: '', surgeryOthers: '', iolType: '',
+      iolPowerRight: '', iolPowerLeft: '',
       eyeOperated: '', anesthesiaType: '', durationMinutes: '',
-      iolPowerRight: '', iolPowerLeft: '', hasComplications: false,
-      complicationDetails: '', notes: '', surgeonId: '', scrubNurseId: '', anesthetistId: '',
+      hasComplications: false, complication: '', complicationOthers: '',
+      surgicalFinding: '', surgicalFindingOthers: '',
+      notes: '', surgeonId: '', scrubNurseId: '', anesthetistId: '',
     });
     setErrors({}); setSuccess('');
   };
@@ -147,41 +292,59 @@ export default function SurgeryScreen() {
     if (errors[field]) setErrors(prev => ({ ...prev, [field]: '' }));
   };
 
-  const showIolType = () => {
-    const st = form.surgeryType.toLowerCase();
-    return st.includes('cataract') || st.includes('sics') || st.includes('phaco') || st.includes('iol');
-  };
+  const showIolDetails = IOL_SURGERY_TYPES.includes(form.surgeryType);
 
   const handleSubmit = async () => {
     if (!patient) return;
     const e: Record<string, string> = {};
     if (!form.surgeryDate) e.surgeryDate = 'Required';
+    if (!form.healthPractitioner) e.healthPractitioner = 'Required';
     if (!form.surgeryType) e.surgeryType = 'Required';
+    if (form.surgeryType === 'Other' && !form.surgeryOthers.trim()) e.surgeryOthers = 'Please specify surgery type';
     if (!form.eyeOperated) e.eyeOperated = 'Required';
     if (!form.anesthesiaType) e.anesthesiaType = 'Required';
     if (!form.durationMinutes || Number(form.durationMinutes) <= 0) e.durationMinutes = 'Required';
     if (!form.surgeonId) e.surgeonId = 'Required';
     if (!form.scrubNurseId) e.scrubNurseId = 'Required';
     if (!form.anesthetistId) e.anesthetistId = 'Required';
-    if (form.hasComplications && !form.complicationDetails.trim()) e.complicationDetails = 'Please describe';
+    if (form.hasComplications && !form.complication) e.complication = 'Select a complication';
+    if (form.hasComplications && form.complication === 'Others' && !form.complicationOthers.trim()) e.complicationOthers = 'Please specify';
     setErrors(e);
     if (Object.keys(e).length > 0) return;
 
     setSubmitting(true);
     try {
-      const inferred = inferProcedureType(form.surgeryType);
+      const resolvedSurgeryType = form.surgeryType === 'Other'
+        ? (form.surgeryOthers.trim() || 'Other')
+        : form.surgeryType;
+
+      let complicationDetails = '';
+      if (form.hasComplications && form.complication) {
+        complicationDetails = form.complication === 'Others'
+          ? `Others: ${form.complicationOthers}`
+          : form.complication;
+        if (form.surgicalFinding) {
+          const finding = form.surgicalFinding === 'Others'
+            ? `Others: ${form.surgicalFindingOthers}`
+            : form.surgicalFinding;
+          complicationDetails += ` | Finding: ${finding}`;
+        }
+      }
+
+      const inferred = inferProcedureType(resolvedSurgeryType);
       await api.surgeries.create(patient.id, {
         surgeryDate: new Date(form.surgeryDate).toISOString(),
+        healthPractitioner: form.healthPractitioner,
         procedureType: inferred,
-        surgeryType: form.surgeryType.trim(),
-        iolType: form.iolType || undefined,
+        surgeryType: resolvedSurgeryType,
+        iolType: showIolDetails ? (form.iolType || undefined) : undefined,
+        iolPowerRight: showIolDetails ? (form.iolPowerRight || undefined) : undefined,
+        iolPowerLeft: showIolDetails ? (form.iolPowerLeft || undefined) : undefined,
         eyeOperated: form.eyeOperated,
         anesthesiaType: form.anesthesiaType,
         durationMinutes: Number(form.durationMinutes),
-        iolPowerRight: form.iolPowerRight || undefined,
-        iolPowerLeft: form.iolPowerLeft || undefined,
         hasComplications: form.hasComplications,
-        complicationDetails: form.hasComplications ? form.complicationDetails.trim() : undefined,
+        complicationDetails: form.hasComplications ? complicationDetails : undefined,
         notes: form.notes.trim() || undefined,
         surgeonId: form.surgeonId,
         scrubNurseId: form.scrubNurseId,
@@ -199,15 +362,6 @@ export default function SurgeryScreen() {
 
   const staffOptions = (list: StaffMember[]) =>
     [{ label: 'Select...', value: '' }, ...list.map(s => ({ label: s.name, value: s.id }))];
-
-  const surgeryTypeOptions = [
-    { label: 'Select surgery type', value: '' },
-    ...SURGERY_TYPES.map(t => ({ label: t, value: t })),
-  ];
-  const iolTypeOptions = [
-    { label: 'Select IOL type', value: '' },
-    ...IOL_TYPES.map(t => ({ label: t, value: t })),
-  ];
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -246,14 +400,8 @@ export default function SurgeryScreen() {
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>Surgery Details</Text>
               <Field label="Surgery Date *" value={form.surgeryDate} onChange={v => handleChange('surgeryDate', v)} error={errors.surgeryDate} placeholder="YYYY-MM-DD" />
-              <PickerModal label="Surgery Type *" value={form.surgeryType} options={surgeryTypeOptions} onChange={v => handleChange('surgeryType', v)} error={errors.surgeryType} />
+              <PickerModal label="Health Practitioner *" value={form.healthPractitioner} options={PRACTITIONER_OPTIONS} onChange={v => handleChange('healthPractitioner', v)} error={errors.healthPractitioner} />
               <View style={{ height: 8 }} />
-              {showIolType() && (
-                <>
-                  <PickerModal label="IOL Type" value={form.iolType} options={iolTypeOptions} onChange={v => handleChange('iolType', v)} />
-                  <View style={{ height: 8 }} />
-                </>
-              )}
               <View style={styles.row}>
                 <View style={{ flex: 1 }}>
                   <PickerModal label="Eye Operated *" value={form.eyeOperated} options={EYE_OPTIONS} onChange={v => handleChange('eyeOperated', v)} error={errors.eyeOperated} />
@@ -266,13 +414,50 @@ export default function SurgeryScreen() {
               <Field label="Duration (minutes) *" value={form.durationMinutes} onChange={v => handleChange('durationMinutes', v)} error={errors.durationMinutes} keyboardType="numeric" placeholder="45" />
             </View>
 
-            {/* IOL Power */}
-            {showIolType() && (
-              <View style={[styles.card, { backgroundColor: Colors.orange50, borderColor: Colors.orange200 }]}>
-                <Text style={[styles.sectionTitle, { color: Colors.orange900 }]}>IOL Power</Text>
+            {/* Surgery Type */}
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Surgery Type *</Text>
+              {errors.surgeryType ? <Text style={{ fontSize: 11, color: Colors.red500, marginBottom: 8 }}>{errors.surgeryType}</Text> : null}
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 }}>
+                {SURGERY_TYPES.map(type => (
+                  <TouchableOpacity
+                    key={type}
+                    style={[styles.typeChip, form.surgeryType === type && styles.typeChipActive]}
+                    onPress={() => {
+                      handleChange('surgeryType', type);
+                      handleChange('iolType', '');
+                      handleChange('iolPowerRight', '');
+                      handleChange('iolPowerLeft', '');
+                    }}
+                  >
+                    <Text style={[styles.typeText, form.surgeryType === type && styles.typeTextActive]}>{type}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              {form.surgeryType === 'Other' && (
+                <Field
+                  label="Specify other surgery type *"
+                  value={form.surgeryOthers}
+                  onChange={v => handleChange('surgeryOthers', v)}
+                  error={errors.surgeryOthers}
+                  placeholder="Specify other surgery type..."
+                />
+              )}
+            </View>
+
+            {/* IOL Details */}
+            {showIolDetails && (
+              <View style={styles.iolBox}>
+                <Text style={styles.iolTitle}>Type of IOL</Text>
+                <PickerModal label="IOL Type" value={form.iolType} options={IOL_TYPE_OPTIONS} onChange={v => handleChange('iolType', v)} />
+                <View style={{ height: 8 }} />
                 <View style={styles.row}>
-                  <View style={{ flex: 1 }}><Field label="Right Eye (D)" value={form.iolPowerRight} onChange={v => handleChange('iolPowerRight', v)} placeholder="22.0" /></View>
-                  <View style={{ flex: 1 }}><Field label="Left Eye (D)" value={form.iolPowerLeft} onChange={v => handleChange('iolPowerLeft', v)} placeholder="21.5" /></View>
+                  <View style={{ flex: 1 }}>
+                    <PickerModal label="IOL Power - Right Eye (D)" value={form.iolPowerRight} options={IOL_POWER_OPTIONS} onChange={v => handleChange('iolPowerRight', v)} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <PickerModal label="IOL Power - Left Eye (D)" value={form.iolPowerLeft} options={IOL_POWER_OPTIONS} onChange={v => handleChange('iolPowerLeft', v)} />
+                  </View>
                 </View>
               </View>
             )}
@@ -288,56 +473,105 @@ export default function SurgeryScreen() {
             </View>
 
             {/* Complications */}
-            <View style={styles.surgeryToggle}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.surgeryTitle}>Complications?</Text>
-                <Text style={styles.surgerySubtitle}>Were there any intra-operative complications?</Text>
+            <View style={styles.card}>
+              <Text style={styles.sectionTitle}>Complications</Text>
+              <View style={{ flexDirection: 'row', gap: 20, marginBottom: 12 }}>
+                <TouchableOpacity
+                  style={styles.radioRow}
+                  onPress={() => {
+                    handleChange('hasComplications', false);
+                    handleChange('complication', '');
+                    handleChange('complicationOthers', '');
+                    handleChange('surgicalFinding', '');
+                    handleChange('surgicalFindingOthers', '');
+                  }}
+                >
+                  <View style={[styles.radio, !form.hasComplications && styles.radioActive]} />
+                  <Text style={styles.radioLabel}>No complications</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.radioRow}
+                  onPress={() => handleChange('hasComplications', true)}
+                >
+                  <View style={[styles.radio, form.hasComplications && styles.radioActiveRed]} />
+                  <Text style={styles.radioLabel}>Complications occurred</Text>
+                </TouchableOpacity>
               </View>
-              <Switch
-                value={form.hasComplications}
-                onValueChange={v => handleChange('hasComplications', v)}
-                trackColor={{ false: Colors.gray300, true: Colors.red300 }}
-                thumbColor={form.hasComplications ? Colors.red500 : Colors.gray100}
-              />
-            </View>
 
-            {form.hasComplications && (
-              <View style={[styles.card, { backgroundColor: Colors.red50, borderColor: Colors.red300 }]}>
-                <Field label="Complication Details *" value={form.complicationDetails} onChange={v => handleChange('complicationDetails', v)} error={errors.complicationDetails} multiline placeholder="Describe complications and management..." />
-              </View>
-            )}
+              {form.hasComplications && (
+                <>
+                  <View style={[styles.subCard, { backgroundColor: Colors.red50, borderColor: Colors.red200 }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                      <Ionicons name="warning" size={18} color={Colors.red600} />
+                      <Text style={{ fontSize: 13, fontWeight: '700', color: Colors.red900 }}>Complications *</Text>
+                    </View>
+                    <PickerModal
+                      label=""
+                      value={form.complication}
+                      options={COMPLICATION_OPTIONS}
+                      onChange={v => handleChange('complication', v)}
+                      error={errors.complication}
+                    />
+                    {form.complication === 'Others' && (
+                      <View style={{ marginTop: 8 }}>
+                        <Field
+                          label="Please specify other complications"
+                          value={form.complicationOthers}
+                          onChange={v => handleChange('complicationOthers', v)}
+                          error={errors.complicationOthers}
+                          multiline
+                          placeholder="Please specify other complications..."
+                        />
+                      </View>
+                    )}
+                  </View>
+
+                  <View style={[styles.subCard, { backgroundColor: Colors.orange50, borderColor: Colors.orange200, marginTop: 10 }]}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: Colors.orange900, marginBottom: 10 }}>
+                      Surgical Findings (Applicable to the eye operated)
+                    </Text>
+                    <PickerModal
+                      label=""
+                      value={form.surgicalFinding}
+                      options={SURGICAL_FINDINGS_OPTIONS}
+                      onChange={v => handleChange('surgicalFinding', v)}
+                    />
+                    {form.surgicalFinding === 'Others' && (
+                      <View style={{ marginTop: 8 }}>
+                        <Field
+                          label="Please specify other surgical findings"
+                          value={form.surgicalFindingOthers}
+                          onChange={v => handleChange('surgicalFindingOthers', v)}
+                          multiline
+                          placeholder="Please specify other surgical findings..."
+                        />
+                      </View>
+                    )}
+                  </View>
+                </>
+              )}
+            </View>
 
             {/* Notes */}
             <View style={styles.card}>
-              <Field label="Additional Notes (Optional)" value={form.notes} onChange={v => handleChange('notes', v)} multiline placeholder="Any other observations..." />
+              <Field label="Additional Notes (Optional)" value={form.notes} onChange={v => handleChange('notes', v)} multiline placeholder="Any other observations or special notes..." />
             </View>
 
             <TouchableOpacity style={[styles.submitBtn, submitting && { opacity: 0.6 }]} onPress={handleSubmit} disabled={submitting}>
               {submitting ? <ActivityIndicator color={Colors.white} /> : <Text style={styles.submitText}>Record Surgery</Text>}
             </TouchableOpacity>
 
-            {/* History */}
-            {history.length > 0 && (
-              <View style={styles.historyCard}>
-                <View style={styles.historyHeader}>
-                  <Text style={styles.historyTitle}>Surgery History ({history.length})</Text>
-                </View>
-                {history.slice(0, 5).map(r => (
-                  <View key={r.id} style={styles.historyRow}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                      <Text style={styles.historyDiag} numberOfLines={1}>{r.surgeryType || r.procedureType}</Text>
-                      <Text style={styles.historyDate}>{new Date(r.surgeryDate).toLocaleDateString()}</Text>
-                    </View>
-                    <Text style={{ fontSize: 11, color: Colors.gray500, marginTop: 2 }}>
-                      {r.eyeOperated} Eye · {r.durationMinutes} min · {r.anesthesiaType}
-                    </Text>
-                    {r.hasComplications && (
-                      <View style={styles.compBadge}><Text style={styles.compBadgeText}>Complications</Text></View>
-                    )}
-                  </View>
-                ))}
+            {/* ── Surgery History — matches web SurgeryHistoryTable ── */}
+            <View style={styles.historyCard}>
+              <View style={styles.historyHeader}>
+                <Text style={styles.historyTitle}>Surgery History ({history.length})</Text>
               </View>
-            )}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                <View style={{ minWidth: 620 }}>
+                  <SurgeryHistoryTable records={history} />
+                </View>
+              </ScrollView>
+            </View>
           </>
         )}
       </ScrollView>
@@ -367,6 +601,53 @@ const fStyles = StyleSheet.create({
   multiline: { minHeight: 80 },
 });
 
+// ── Table styles ──
+const tableStyles = StyleSheet.create({
+  empty: {
+    alignItems: 'center', paddingVertical: 40,
+    borderWidth: 1, borderColor: Colors.gray200, borderStyle: 'dashed', borderRadius: 12,
+    backgroundColor: Colors.gray50, margin: 16,
+  },
+  emptyTitle: { fontSize: 14, fontWeight: '600', color: Colors.gray900, marginTop: 8 },
+  emptyText: { fontSize: 13, color: Colors.gray500, marginTop: 4, textAlign: 'center', paddingHorizontal: 16 },
+
+  headerRow: {
+    flexDirection: 'row', backgroundColor: Colors.gray50,
+    borderBottomWidth: 1, borderBottomColor: Colors.gray200,
+    paddingHorizontal: 12, paddingVertical: 10,
+  },
+  headerCell: { fontSize: 10, fontWeight: '600', color: Colors.gray500, letterSpacing: 0.5, textTransform: 'uppercase' },
+
+  dataRow: {
+    flexDirection: 'row', paddingHorizontal: 12, paddingVertical: 12,
+    borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.gray200,
+  },
+  cell: { justifyContent: 'center', paddingRight: 8 },
+  cellText: { fontSize: 12, color: Colors.gray900 },
+  cellSub: { fontSize: 11, color: Colors.gray500, marginTop: 2 },
+
+  eyeBadge: {
+    alignSelf: 'flex-start', backgroundColor: Colors.orange50,
+    borderWidth: 1, borderColor: Colors.orange200,
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 20,
+  },
+  eyeBadgeText: { fontSize: 11, fontWeight: '600', color: Colors.orange800 },
+
+  compBadge: {
+    flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start',
+    backgroundColor: '#FEE2E2', borderWidth: 1, borderColor: '#FECACA',
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 20,
+  },
+  compBadgeText: { fontSize: 10, fontWeight: '600', color: '#991B1B' },
+
+  successBadge: {
+    flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start',
+    backgroundColor: '#DCFCE7', borderWidth: 1, borderColor: '#BBF7D0',
+    paddingHorizontal: 6, paddingVertical: 2, borderRadius: 20,
+  },
+  successBadgeText: { fontSize: 10, fontWeight: '600', color: '#166534' },
+});
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.gray50 },
   content: { padding: 16, paddingBottom: 40 },
@@ -380,17 +661,21 @@ const styles = StyleSheet.create({
   card: { backgroundColor: Colors.white, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: Colors.gray100, marginTop: 12 },
   sectionTitle: { fontSize: 15, fontWeight: '700', color: Colors.gray900, marginBottom: 12 },
   row: { flexDirection: 'row', gap: 12 },
-  surgeryToggle: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: Colors.red50, borderRadius: 14, padding: 16, marginTop: 12, borderWidth: 1, borderColor: Colors.red300 },
-  surgeryTitle: { fontSize: 14, fontWeight: '600', color: Colors.gray900 },
-  surgerySubtitle: { fontSize: 11, color: Colors.gray600, marginTop: 2 },
+  typeChip: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: Colors.gray300, backgroundColor: Colors.white },
+  typeChipActive: { backgroundColor: Colors.orange600, borderColor: Colors.orange600 },
+  typeText: { fontSize: 12, fontWeight: '500', color: Colors.gray700 },
+  typeTextActive: { color: Colors.white },
+  iolBox: { backgroundColor: '#EFF6FF', borderRadius: 14, padding: 16, borderWidth: 1, borderColor: '#BFDBFE', marginTop: 12 },
+  iolTitle: { fontSize: 14, fontWeight: '700', color: '#1E3A8A', marginBottom: 12 },
+  radioRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  radio: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: Colors.gray400 },
+  radioActive: { borderColor: Colors.orange600, backgroundColor: Colors.orange600 },
+  radioActiveRed: { borderColor: Colors.red600, backgroundColor: Colors.red600 },
+  radioLabel: { fontSize: 13, color: Colors.gray700 },
+  subCard: { borderRadius: 12, padding: 14, borderWidth: 1 },
   submitBtn: { backgroundColor: Colors.orange600, borderRadius: 14, paddingVertical: 18, alignItems: 'center', marginTop: 16 },
   submitText: { color: Colors.white, fontSize: 17, fontWeight: '700' },
   historyCard: { backgroundColor: Colors.white, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: Colors.gray100, marginTop: 16 },
   historyHeader: { paddingHorizontal: 16, paddingVertical: 12, backgroundColor: Colors.gray50, borderBottomWidth: 1, borderBottomColor: Colors.gray200 },
   historyTitle: { fontSize: 14, fontWeight: '600', color: Colors.gray900 },
-  historyRow: { paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.gray100 },
-  historyDiag: { fontSize: 13, fontWeight: '500', color: Colors.gray900, flex: 1 },
-  historyDate: { fontSize: 11, color: Colors.gray400 },
-  compBadge: { backgroundColor: Colors.red50, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, alignSelf: 'flex-start', marginTop: 4, borderWidth: 1, borderColor: Colors.red300 },
-  compBadgeText: { fontSize: 11, fontWeight: '600', color: Colors.red500 },
 });

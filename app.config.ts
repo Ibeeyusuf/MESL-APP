@@ -18,6 +18,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   // },
 
   splash: {
+    image: "./assets/splash.png",
+    resizeMode: "contain",
     backgroundColor: "#9a3412",
   },
   ios: {
@@ -30,5 +32,16 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     },
     package: "com.mesl.mobile",
   },
-  plugins: ["expo-router", "expo-image-picker"],
+  plugins: [
+    "expo-router",
+    "expo-image-picker",
+    [
+      "expo-splash-screen",
+      {
+        image: "./assets/splash.png",
+        resizeMode: "contain",
+        backgroundColor: "#9a3412",
+      },
+    ],
+  ],
 });

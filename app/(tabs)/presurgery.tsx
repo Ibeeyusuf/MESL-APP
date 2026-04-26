@@ -30,6 +30,15 @@ const IOL_POWER_OPTIONS = (() => {
   return opts;
 })();
 
+// Health Practitioner — matches web version dropdown exactly
+const PRACTITIONER_OPTIONS = [
+  { label: 'Select practitioner', value: '' },
+  { label: 'Ibrahim Wambai', value: 'Ibrahim Wambai' },
+  { label: 'Nasiru Usman', value: 'Nasiru Usman' },
+  { label: 'Adamu Mohammed', value: 'Adamu Mohammed' },
+  { label: 'Murtala Umar', value: 'Murtala Umar' },
+];
+
 export default function PreSurgeryScreen() {
   const { user } = useAuth();
   const params = useLocalSearchParams<{ patientId?: string }>();
@@ -38,12 +47,14 @@ export default function PreSurgeryScreen() {
   useEffect(() => {
     if (user && user.role !== 'Doctor') router.replace('/(tabs)/');
   }, [user]);
+
   const [patient, setPatient] = useState<Patient | null>(null);
   const [hasSurgeryRec, setHasSurgeryRec] = useState(false);
   const [checkingRec, setCheckingRec] = useState(false);
   const [biometryDone, setBiometryDone] = useState(false);
   const [form, setForm] = useState({
     assessmentDate: getTodayDate(),
+    healthPractitioner: '',
     alRight: '', alLeft: '',
     pcIolPowerRight: '', pcIolPowerLeft: '',
     biometryOthersRight: '', biometryOthersLeft: '',
@@ -90,7 +101,8 @@ export default function PreSurgeryScreen() {
 
   const resetForm = () => {
     setForm({
-      assessmentDate: getTodayDate(), alRight: '', alLeft: '',
+      assessmentDate: getTodayDate(), healthPractitioner: '',
+      alRight: '', alLeft: '',
       pcIolPowerRight: '', pcIolPowerLeft: '', biometryOthersRight: '', biometryOthersLeft: '',
       bloodPressure: '', bloodSugar: '', hivTest: '', hepatitisTest: '',
       ocularBScan: '', fitnessForSurgery: false, consentSigned: false, preOpInstructionsGiven: false, notes: '',
@@ -107,6 +119,7 @@ export default function PreSurgeryScreen() {
     if (!patient) return;
     const e: Record<string, string> = {};
     if (!form.assessmentDate) e.assessmentDate = 'Required';
+    if (!form.healthPractitioner) e.healthPractitioner = 'Required';
     if (!form.fitnessForSurgery) e.fitnessForSurgery = 'Must confirm fitness';
     if (!form.consentSigned) e.consentSigned = 'Must confirm consent';
     if (!form.preOpInstructionsGiven) e.preOpInstructionsGiven = 'Must confirm instructions';
@@ -123,6 +136,7 @@ export default function PreSurgeryScreen() {
     try {
       await api.preSurgeries.create(patient.id, {
         assessmentDate: new Date(form.assessmentDate).toISOString(),
+        healthPractitioner: form.healthPractitioner,
         ocularBiometry: biometryDone ? 'Yes' : 'No',
         alRight: biometryDone ? form.alRight : undefined,
         alLeft: biometryDone ? form.alLeft : undefined,
@@ -181,9 +195,16 @@ export default function PreSurgeryScreen() {
               </View>
             ) : null}
 
-            {/* Assessment Date */}
+            {/* Assessment Date + Health Practitioner */}
             <View style={styles.card}>
               <Field label="Assessment Date *" value={form.assessmentDate} onChange={v => handleChange('assessmentDate', v)} error={errors.assessmentDate} placeholder="YYYY-MM-DD" />
+              <PickerModal
+                label="Health Practitioner *"
+                value={form.healthPractitioner}
+                options={PRACTITIONER_OPTIONS}
+                onChange={v => handleChange('healthPractitioner', v)}
+                error={errors.healthPractitioner}
+              />
             </View>
 
             {/* Ocular Biometry */}
@@ -240,7 +261,7 @@ export default function PreSurgeryScreen() {
               <Field label="Ocular B-Scan" value={form.ocularBScan} onChange={v => handleChange('ocularBScan', v)} multiline placeholder="B-Scan findings (if performed)..." />
             </View>
 
-            {/* Fitness Checkboxes */}
+            {/* Fitness Confirmations */}
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>Confirmations</Text>
               <CheckItem label="Patient is fit for surgery *" checked={form.fitnessForSurgery} onToggle={v => handleChange('fitnessForSurgery', v)} error={errors.fitnessForSurgery} />
@@ -257,7 +278,6 @@ export default function PreSurgeryScreen() {
               {submitting ? <ActivityIndicator color={Colors.white} /> : <Text style={styles.submitText}>Complete Pre-Surgery Assessment</Text>}
             </TouchableOpacity>
 
-            {/* History */}
             {history.length > 0 && (
               <View style={styles.historyCard}>
                 <View style={styles.historyHeader}>

@@ -279,3 +279,12 @@ export interface StaffMember {
   role: 'Surgeon' | 'Scrub Nurse' | 'Anesthetist';
   centreCode: string;
 }
+
+// ── Inventory Report ──
+export interface InventoryReport {
+  totalItems: number;
+  totalStock: number;
+  lowStockCount: number;
+  outOfStockCount: number;
+  byCategory: Record<string, number>;
+}
