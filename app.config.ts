@@ -2,20 +2,21 @@ import { ExpoConfig, ConfigContext } from "expo/config";
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
-  name: "MESL",
+  name: "MESL Outreach",
   slug: "mesl-mobile",
-  version: "1.0.1",
+  version: "1.0.2",
   orientation: "portrait",
   icon: "./assets/icon.png",
   scheme: "mesl",
   userInterfaceStyle: "light",
   newArchEnabled: true,
 
-  // extra: {
-  //   eas: {
-  //     projectId: "edcb943d-8464-4655-953a-dbad2988df0f",
-  //   },
-  // },
+  // ✅ CHANGED: Hardcoded runtime version (required for bare workflow)
+  runtimeVersion: "1.0.2",
+  
+  updates: {
+    url: "https://u.expo.dev/441b8745-e510-45f5-8579-63abfc8ac6ae"
+  },
 
   splash: {
     image: "./assets/splash.png",

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
@@ -10,12 +10,55 @@ import { useAuth } from '@/contexts/AuthContext';
 import { PatientSelector } from '@/components/PatientSelector';
 import { PickerModal } from '@/components/PickerModal';
 import { api } from '@/services/api';
-import { mapApiDrugToUi, mapApiPrescriptionToUi, mapApiPatientToUi } from '@/utils/helpers';
-import type { Patient, DrugItem, Prescription } from '@/types';
+import { mapApiPatientToUi } from '@/utils/helpers';
+import type { Patient } from '@/types';
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 type TabMode = 'prescribe' | 'stock';
 
-type PrescriptionItem = {
+type DrugForm = 'Eye Drops' | 'Eye Ointment' | 'Tablet' | 'Capsule' | 'Injection';
+
+interface DrugItem {
+  id: string;
+  name: string;
+  genericName: string;
+  strength: string;
+  form: DrugForm;
+  category?: string;
+  dosageForm?: string;
+  centreCode: string;
+  currentStock: number;
+  reorderLevel: number;
+  expiryDate?: string;
+  addedAt: string;
+  addedBy: string;
+}
+
+interface PrescriptionItem {
+  drugId: string;
+  drugName: string;
+  dosage: string;
+  frequency: string;
+  duration: string;
+  instructions?: string;
+  quantity: number;
+  issuedAt?: string;
+  issuedBy?: string;
+}
+
+interface Prescription {
+  id: string;
+  patientId: string;
+  items: PrescriptionItem[];
+  prescribedAt: string;
+  prescribedBy: string;
+  centreCode: string;
+  /** 'prescription' = real issued record; 'consultation' = prescribed but not yet dispensed */
+  source: 'prescription' | 'consultation';
+}
+
+type PrescriptionFormItem = {
   drugId: string;
   dosage: string;
   frequency: string;
@@ -24,9 +67,117 @@ type PrescriptionItem = {
   instructions: string;
 };
 
-const emptyItem = (): PrescriptionItem => ({
-  drugId: '', dosage: '', frequency: '', duration: '', quantity: '', instructions: '',
-});
+// ─── Mapping helpers (mirrors web hook exactly) ───────────────────────────────
+
+function mapDrugFormFromApi(value: string): DrugForm {
+  switch (value) {
+    case 'EYE_DROPS': return 'Eye Drops';
+    case 'EYE_OINTMENT': return 'Eye Ointment';
+    case 'TABLET': return 'Tablet';
+    case 'CAPSULE': return 'Capsule';
+    case 'INJECTION': return 'Injection';
+    default: return 'Tablet';
+  }
+}
+
+function mapDrugToUi(item: any): DrugItem {
+  return {
+    id: item.id,
+    name: item.name,
+    genericName: item.genericName ?? '',
+    strength: item.strength ?? '',
+    form: mapDrugFormFromApi(item.form),
+    category: item.category ?? undefined,
+    dosageForm: item.dosageForm ?? undefined,
+    centreCode: item.centre?.code ?? 'N/A',
+    currentStock: item.currentStock ?? 0,
+    reorderLevel: item.reorderLevel ?? 0,
+    expiryDate: item.expiryDate ?? undefined,
+    addedAt: item.createdAt ?? new Date().toISOString(),
+    addedBy: item.createdBy?.fullName ?? 'System',
+  };
+}
+
+function mapPrescriptionToUi(item: any): Prescription {
+  const items = (item.items ?? []).map((entry: any): PrescriptionItem => ({
+    drugId: entry.drugId,
+    drugName: entry.drug?.name
+      ? `${entry.drug.name}${entry.drug.strength ? ` ${entry.drug.strength}` : ''}`
+      : entry.drugName ?? 'Drug',
+    dosage: entry.dosage,
+    frequency: entry.frequency,
+    duration: entry.duration,
+    instructions: entry.instructions ?? undefined,
+    quantity: entry.quantity ?? 0,
+    issuedAt: entry.issuedAt ?? undefined,
+    issuedBy: entry.issuedBy?.fullName ?? undefined,
+  }));
+
+  return {
+    id: item.id,
+    patientId: item.patient?.id ?? item.patientId,
+    items,
+    prescribedAt: item.issuedAt ?? item.prescribedAt ?? item.createdAt ?? new Date().toISOString(),
+    prescribedBy: item.issuedBy?.fullName ?? item.prescribedBy?.fullName ?? 'System',
+    centreCode: item.centre?.code ?? 'N/A',
+    source: 'prescription',
+  };
+}
+
+/**
+ * Mirrors web's mapConsultationToPrescription.
+ * Returns null if no prescribedDrugs entries (filtered out downstream).
+ */
+function mapConsultationToPrescription(item: any): Prescription | null {
+  const items = (item.prescribedDrugs ?? []).map((entry: any): PrescriptionItem => ({
+    drugId: entry.drugId,
+    drugName: entry.drugName ?? 'Drug',
+    dosage: entry.dosage ?? '1',
+    frequency: entry.frequency ?? '1',
+    duration: entry.duration ?? '',
+    instructions: entry.instructions ?? undefined,
+    quantity: entry.quantity ?? 0,
+  }));
+
+  if (items.length === 0) return null;
+
+  return {
+    id: `consultation-${item.id}`,
+    patientId: item.patientId,
+    items,
+    prescribedAt: item.consultedAt ?? item.consultationDate ?? item.createdAt ?? new Date().toISOString(),
+    prescribedBy: item.consultedBy?.fullName ?? item.healthPractitioner ?? item.consultedBy ?? 'System',
+    centreCode: item.centre?.code ?? 'N/A',
+    source: 'consultation',
+  };
+}
+
+/**
+ * Mirrors web's buildIssuedDrugSignature — used to deduplicate consultation
+ * items that have already been issued as a real prescription.
+ */
+function buildIssuedDrugSignature(item: PrescriptionItem): string {
+  return [item.drugId, item.dosage ?? '', item.frequency ?? '', item.duration ?? '', item.quantity ?? 0].join('|');
+}
+
+/**
+ * Mirrors web's isPrescriptionItemIssued:
+ * An item is issued if the prescription source is 'prescription' OR item.issuedAt is set.
+ */
+function isPrescriptionItemIssued(prescription: Prescription, index: number): boolean {
+  const item = prescription.items[index];
+  if (!item) return false;
+  return prescription.source === 'prescription' || Boolean(item.issuedAt);
+}
+
+/** Key used to track in-flight "Mark As Issued" calls — mirrors web's getPrescriptionItemKey */
+function getPrescriptionItemKey(prescriptionId: string, drugId: string, index: number): string {
+  return `${prescriptionId}:${drugId}:${index}`;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const ALLOWED_ROLES = ['Admin', 'Doctor', 'Anesthetist'];
 
 const FREQUENCY_OPTIONS = [
   { label: 'Select frequency', value: '' },
@@ -54,74 +205,137 @@ const DURATION_OPTIONS = [
   { label: 'Ongoing', value: 'Ongoing' },
 ];
 
-// Roles that can access drug management (Admin manages stock, Doctor prescribes)
-const ALLOWED_ROLES = ['Admin', 'Doctor', 'Anesthetist'];
+const emptyItem = (): PrescriptionFormItem => ({
+  drugId: '', dosage: '', frequency: '', duration: '', quantity: '1', instructions: '',
+});
+
+// ─── Screen ───────────────────────────────────────────────────────────────────
 
 export default function DrugsScreen() {
   const params = useLocalSearchParams<{ patientId?: string }>();
   const { user } = useAuth();
-  const isAdminView = user?.role === 'Admin';
 
-  // Guard — Admin, Doctor, Anesthetist only
   useEffect(() => {
     if (user && !ALLOWED_ROLES.includes(user.role)) router.replace('/(tabs)/');
   }, [user]);
+
+  const isAdminView = user?.role === 'Admin';
 
   const [activeTab, setActiveTab] = useState<TabMode>('prescribe');
   const [patient, setPatient] = useState<Patient | null>(null);
   const [drugs, setDrugs] = useState<DrugItem[]>([]);
   const [lowStock, setLowStock] = useState<DrugItem[]>([]);
-  const [prescriptions, setPrescriptions] = useState<Prescription[]>([]);
+  const [prescriptionHistory, setPrescriptionHistory] = useState<Prescription[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [items, setItems] = useState<PrescriptionItem[]>([]);
+  const [items, setItems] = useState<PrescriptionFormItem[]>([]);
   const [itemErrors, setItemErrors] = useState<Record<number, Record<string, string>>>({});
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState('');
   const [issuingKeys, setIssuingKeys] = useState<string[]>([]);
-  const [issuedKeys, setIssuedKeys] = useState<string[]>([]);
+  // Inline error for history actions — mirrors web's historyActionError
+  const [historyActionError, setHistoryActionError] = useState('');
   const [editingStockId, setEditingStockId] = useState<string | null>(null);
   const [stockInputValue, setStockInputValue] = useState('');
   const [updatingStockId, setUpdatingStockId] = useState<string | null>(null);
 
+  // ── Loaders ───────────────────────────────────────────────────────────────
+
+  const loadDrugs = useCallback(async (): Promise<DrugItem[]> => {
+    try {
+      const res = (await api.drugs.list()) as { data?: any[] };
+      const d = (res.data ?? []).map(mapDrugToUi);
+      setDrugs(d);
+      setLowStock(d.filter((x: DrugItem) => x.currentStock < x.reorderLevel));
+      return d;
+    } catch {
+      setDrugs([]);
+      setLowStock([]);
+      return [];
+    }
+  }, []);
+
+  /**
+   * Mirrors web's loadPrescriptionHistory:
+   * fetches real prescriptions AND consultation records, merges + deduplicates.
+   */
+  const loadPrescriptionHistory = useCallback(async (p: Patient, drugList: DrugItem[]) => {
+    setIsHistoryLoading(true);
+    try {
+      // 1. Real prescriptions (source: 'prescription')
+      const rxRes = (await api.prescriptions.list(p.id)) as { data?: any[] };
+      const mapped = (rxRes.data ?? []).map(mapPrescriptionToUi);
+
+      // 2. Build set of already-issued signatures for deduplication
+      const issuedSignatures = new Set(
+        mapped.flatMap(rx => rx.items.map(buildIssuedDrugSignature)),
+      );
+
+      // 3. Consultation-prescribed drugs (source: 'consultation')
+      const conRes = (await (api as any).consultations.list(p.id)) as { data?: any[] };
+      const consultationMapped = (conRes.data ?? [])
+        .map(mapConsultationToPrescription)
+        .filter((item): item is Prescription => item !== null)
+        // Remove individual items that already have a matching real prescription
+        .map(rx => ({
+          ...rx,
+          items: rx.items.filter(item => !issuedSignatures.has(buildIssuedDrugSignature(item))),
+        }))
+        // Drop prescriptions where all items are already issued
+        .filter(rx => rx.items.length > 0);
+
+      // 4. Merge, sort newest first
+      const combined = [...mapped, ...consultationMapped];
+      combined.sort((a, b) => new Date(b.prescribedAt).getTime() - new Date(a.prescribedAt).getTime());
+      setPrescriptionHistory(combined);
+    } catch {
+      setPrescriptionHistory([]);
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  }, []);
+
+  // ── Effects ───────────────────────────────────────────────────────────────
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      await loadDrugs();
+      setLoading(false);
+    })();
+  }, [user?.id]);
+
   useEffect(() => {
     if (params.patientId && !patient) {
       (async () => {
-        try { const res = await api.patients.getById(params.patientId!); setPatient(mapApiPatientToUi(res)); } catch {}
+        try {
+          const res = await api.patients.getById(params.patientId!);
+          setPatient(mapApiPatientToUi(res));
+        } catch {}
       })();
     }
   }, [params.patientId]);
 
   useEffect(() => {
-    (async () => {
-      setLoading(true);
-      try {
-        const res = (await api.drugs.list()) as { data?: any[] };
-        const d = (res.data ?? []).map(mapApiDrugToUi);
-        setDrugs(d);
-        setLowStock(d.filter((x: DrugItem) => x.currentStock < x.reorderLevel));
-      } catch { setDrugs([]); }
-      setLoading(false);
-    })();
-  }, []);
-
-  useEffect(() => {
-    if (!patient) { setPrescriptions([]); return; }
-    (async () => {
-      try {
-        const res = (await api.prescriptions.list(patient.id)) as { data?: any[] };
-        setPrescriptions((res.data ?? []).map(mapApiPrescriptionToUi));
-      } catch { setPrescriptions([]); }
-      setItems([]); setItemErrors({}); setSuccess('');
-      setIssuedKeys([]); setIssuingKeys([]);
-    })();
+    if (!patient) { setPrescriptionHistory([]); return; }
+    setItems([]);
+    setItemErrors({});
+    setSuccess('');
+    setIssuingKeys([]);
+    setHistoryActionError('');
+    void loadPrescriptionHistory(patient, drugs);
   }, [patient?.id]);
 
+  // ── Form helpers ──────────────────────────────────────────────────────────
+
   const addItem = () => setItems(prev => [...prev, emptyItem()]);
+
   const removeItem = (idx: number) => {
     setItems(prev => prev.filter((_, i) => i !== idx));
     setItemErrors(prev => { const n = { ...prev }; delete n[idx]; return n; });
   };
-  const updateItem = (idx: number, field: keyof PrescriptionItem, value: string) => {
+
+  const updateItem = (idx: number, field: keyof PrescriptionFormItem, value: string) => {
     setItems(prev => prev.map((item, i) => i === idx ? { ...item, [field]: value } : item));
     if (itemErrors[idx]?.[field]) {
       setItemErrors(prev => {
@@ -131,6 +345,8 @@ export default function DrugsScreen() {
       });
     }
   };
+
+  // ── Submit prescription ───────────────────────────────────────────────────
 
   const handleSubmit = async () => {
     if (!patient || items.length === 0) return;
@@ -142,48 +358,94 @@ export default function DrugsScreen() {
       if (!item.frequency) e.frequency = 'Required';
       if (!item.duration) e.duration = 'Required';
       if (!item.quantity || Number(item.quantity) < 1) e.quantity = 'Required';
+      const drug = drugs.find(d => d.id === item.drugId);
+      if (drug && Number(item.quantity) > drug.currentStock) {
+        e.quantity = `Only ${drug.currentStock} available`;
+      }
       if (Object.keys(e).length > 0) errs[i] = e;
     });
     setItemErrors(errs);
     if (Object.keys(errs).length > 0) return;
+
     setSubmitting(true);
     try {
-      for (const item of items) {
-        await api.prescriptions.create(patient.id, {
+      await api.prescriptions.create(patient.id, {
+        items: items.map(item => ({
           drugId: item.drugId,
           dosage: item.dosage.trim(),
           frequency: item.frequency,
           duration: item.duration,
           quantity: Number(item.quantity),
           instructions: item.instructions.trim() || undefined,
-        });
-      }
-      const res = (await api.prescriptions.list(patient.id)) as { data?: any[] };
-      setPrescriptions((res.data ?? []).map(mapApiPrescriptionToUi));
-      const dRes = (await api.drugs.list()) as { data?: any[] };
-      const d = (dRes.data ?? []).map(mapApiDrugToUi);
-      setDrugs(d); setLowStock(d.filter((x: DrugItem) => x.currentStock < x.reorderLevel));
+        })),
+      });
+      const d = await loadDrugs();
+      await loadPrescriptionHistory(patient, d);
       setSuccess(`Prescription (${items.length} drug${items.length > 1 ? 's' : ''}) saved for ${patient.firstName}`);
-      setItems([]); setItemErrors({});
+      setItems([]);
+      setItemErrors({});
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
       Alert.alert('Error', err instanceof Error ? err.message : 'Failed to save');
-    } finally { setSubmitting(false); }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleMarkAsIssued = async (prescriptionId: string, drugId: string, index: number) => {
-    const key = `${prescriptionId}-${index}`;
-    setIssuingKeys(prev => [...prev, key]);
+  /**
+   * Mirrors web's handleMarkAsIssued + markPrescriptionItemAsIssued:
+   * - Validates the item exists and matches drugId
+   * - Shows inline historyActionError (not just Alert)
+   * - Creates a real prescription record for the consultation item
+   * - Manually decrements stock (mirrors the web hook's explicit updateDrug call)
+   * - Refreshes drugs + history on success
+   */
+  const handleMarkAsIssued = async (prescription: Prescription, drugId: string, index: number) => {
+    const item = prescription.items[index];
+    if (!item || item.drugId !== drugId) {
+      setHistoryActionError('Unable to find the selected prescription item.');
+      return;
+    }
+    if (isPrescriptionItemIssued(prescription, index)) return;
+
+    const drug = drugs.find(d => d.id === item.drugId);
+    if (!drug) {
+      setHistoryActionError('Drug not found in current stock list.');
+      return;
+    }
+    if (item.quantity > drug.currentStock) {
+      setHistoryActionError(`Only ${drug.currentStock} in stock for ${drug.name}.`);
+      return;
+    }
+
+    setHistoryActionError('');
+    const itemKey = getPrescriptionItemKey(prescription.id, drugId, index);
+    setIssuingKeys(prev => [...prev, itemKey]);
     try {
-      await (api.prescriptions as any).markItemIssued(prescriptionId, { drugId, index });
-      setIssuedKeys(prev => [...prev, key]);
-      const dRes = (await api.drugs.list()) as { data?: any[] };
-      const d = (dRes.data ?? []).map(mapApiDrugToUi);
-      setDrugs(d); setLowStock(d.filter((x: DrugItem) => x.currentStock < x.reorderLevel));
+      await api.prescriptions.create(prescription.patientId, {
+        items: [{
+          drugId: item.drugId,
+          dosage: item.dosage,
+          frequency: item.frequency,
+          duration: item.duration,
+          instructions: item.instructions,
+          quantity: item.quantity,
+        }],
+      });
+      // Mirrors web hook's explicit stock decrement after creating prescription
+      await (api.drugs as any).updateStock(item.drugId, {
+        currentStock: drug.currentStock - item.quantity,
+      });
+      const d = await loadDrugs();
+      await loadPrescriptionHistory(patient!, d);
     } catch (err) {
-      Alert.alert('Error', err instanceof Error ? err.message : 'Failed to mark as issued');
-    } finally { setIssuingKeys(prev => prev.filter(k => k !== key)); }
+      setHistoryActionError(err instanceof Error ? err.message : 'Failed to issue drug.');
+    } finally {
+      setIssuingKeys(prev => prev.filter(k => k !== itemKey));
+    }
   };
+
+  // ── Stock management ──────────────────────────────────────────────────────
 
   const handleUpdateStock = async (drugId: string) => {
     const newStock = Number(stockInputValue);
@@ -191,34 +453,47 @@ export default function DrugsScreen() {
     setUpdatingStockId(drugId);
     try {
       await (api.drugs as any).updateStock(drugId, { currentStock: newStock });
-      const dRes = (await api.drugs.list()) as { data?: any[] };
-      const d = (dRes.data ?? []).map(mapApiDrugToUi);
-      setDrugs(d); setLowStock(d.filter((x: DrugItem) => x.currentStock < x.reorderLevel));
-      setEditingStockId(null); setStockInputValue('');
+      await loadDrugs();
+      setEditingStockId(null);
+      setStockInputValue('');
     } catch (err) {
       Alert.alert('Error', err instanceof Error ? err.message : 'Failed to update stock');
-    } finally { setUpdatingStockId(null); }
+    } finally {
+      setUpdatingStockId(null);
+    }
   };
+
+  // ── Derived ───────────────────────────────────────────────────────────────
 
   const drugOptions = [
     { label: 'Select drug', value: '' },
     ...drugs.map(d => ({ label: `${d.name} (${d.strength}) — Stock: ${d.currentStock}`, value: d.id })),
   ];
 
+  // ── Render ────────────────────────────────────────────────────────────────
+
   if (loading) {
-    return <View style={styles.centered}><ActivityIndicator size="large" color={Colors.orange600} /><Text style={styles.loadingText}>Loading drugs...</Text></View>;
+    return (
+      <View style={styles.centered}>
+        <ActivityIndicator size="large" color={Colors.orange600} />
+        <Text style={styles.loadingText}>Loading drugs...</Text>
+      </View>
+    );
   }
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView style={styles.container} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
 
+        {/* Low stock banner */}
         {lowStock.length > 0 && (
           <View style={styles.warningBox}>
             <Ionicons name="warning" size={18} color={Colors.red500} style={{ marginTop: 1 }} />
             <View style={{ flex: 1 }}>
               <Text style={styles.warningTitle}>Low Stock Warning</Text>
-              <Text style={styles.warningText}>{lowStock.length} drug(s) below reorder level. Check Stock Management tab.</Text>
+              <Text style={styles.warningText}>
+                {lowStock.length} drug(s) below reorder level. Check Stock Management tab.
+              </Text>
             </View>
           </View>
         )}
@@ -232,7 +507,7 @@ export default function DrugsScreen() {
             <Ionicons name="document-text-outline" size={16} color={activeTab === 'prescribe' ? Colors.orange600 : Colors.gray500} />
             <Text style={[styles.tabBtnText, activeTab === 'prescribe' && styles.tabBtnTextActive]}>Issued Drugs</Text>
           </TouchableOpacity>
-          {/* Stock Management tab — visible to Admin only */}
+          {/* Stock tab — Admin only, mirrors web */}
           {isAdminView && (
             <TouchableOpacity
               style={[styles.tabBtn, activeTab === 'stock' && styles.tabBtnActive]}
@@ -247,7 +522,8 @@ export default function DrugsScreen() {
           )}
         </View>
 
-        {activeTab === 'prescribe' ? (
+        {/* ── PRESCRIBE TAB ── */}
+        {activeTab === 'prescribe' && (
           <>
             <View style={styles.sectionBox}>
               <Text style={styles.sectionLabel}>1. Select Patient</Text>
@@ -263,7 +539,7 @@ export default function DrugsScreen() {
                   </View>
                 ) : null}
 
-                {/* Prescription form — shown for non-Admin (Doctor/Anesthetist) */}
+                {/* Prescription form — hidden for Admin, mirrors web's !isAdminView guard */}
                 {!isAdminView && (
                   <>
                     {items.length === 0 ? (
@@ -304,133 +580,185 @@ export default function DrugsScreen() {
                           <Ionicons name="add-circle-outline" size={18} color={Colors.orange600} />
                           <Text style={styles.addMoreText}>Add Another Drug</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity style={[styles.submitBtn, submitting && { opacity: 0.6 }]} onPress={handleSubmit} disabled={submitting}>
-                          {submitting ? <ActivityIndicator color={Colors.white} /> : <Text style={styles.submitText}>Create Prescription ({items.length} drug{items.length > 1 ? 's' : ''})</Text>}
+                        <TouchableOpacity
+                          style={[styles.submitBtn, submitting && { opacity: 0.6 }]}
+                          onPress={handleSubmit}
+                          disabled={submitting}
+                        >
+                          {submitting
+                            ? <ActivityIndicator color={Colors.white} />
+                            : <Text style={styles.submitText}>
+                                Create Prescription ({items.length} drug{items.length > 1 ? 's' : ''})
+                              </Text>}
                         </TouchableOpacity>
                       </>
                     )}
                   </>
                 )}
 
-                {/* Issued Drug History */}
-                {prescriptions.length > 0 && (
-                  <View style={styles.historyCard}>
-                    <View style={styles.historyHeader}>
-                      <Text style={styles.historyTitle}>Issued Drug History</Text>
-                      <View style={styles.historyBadge}><Text style={styles.historyBadgeText}>{prescriptions.length} Records</Text></View>
+                {/* Issued Drug History — always rendered once patient selected, mirrors web */}
+                <View style={styles.historyCard}>
+                  <View style={styles.historyHeader}>
+                    <Text style={styles.historyTitle}>Issued Drug History</Text>
+                    <View style={styles.historyBadge}>
+                      <Text style={styles.historyBadgeText}>{prescriptionHistory.length} Records</Text>
                     </View>
-                    {prescriptions.slice(0, 10).map(rx => {
-                      const key = `${rx.id}-0`;
-                      const isIssued = issuedKeys.includes(key);
-                      const isIssuing = issuingKeys.includes(key);
-                      return (
-                        <View key={rx.id} style={styles.historyRow}>
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                            <Text style={styles.historyDrug} numberOfLines={1}>{rx.drugName}</Text>
-                            <Text style={styles.historyDate}>{new Date(rx.prescribedAt).toLocaleDateString()}</Text>
-                          </View>
-                          <Text style={{ fontSize: 11, color: Colors.gray500, marginTop: 2 }}>
-                            {rx.dosage} · {rx.frequency} · {rx.duration} · Qty: {rx.quantity}
-                          </Text>
-                          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
-                            <Text style={{ fontSize: 10, color: Colors.gray400 }}>By {rx.prescribedBy}</Text>
-                            {isAdminView && (
-                              isIssued ? (
-                                <View style={styles.issuedBadge}>
-                                  <Ionicons name="checkmark-circle" size={12} color={Colors.green700} />
-                                  <Text style={styles.issuedText}>Issued</Text>
-                                </View>
-                              ) : (
-                                <TouchableOpacity
-                                  style={[styles.markIssuedBtn, isIssuing && { opacity: 0.6 }]}
-                                  onPress={() => handleMarkAsIssued(rx.id, rx.drugId, 0)}
-                                  disabled={isIssuing}
-                                >
-                                  <Text style={styles.markIssuedText}>{isIssuing ? 'Updating...' : 'Mark As Issued'}</Text>
-                                </TouchableOpacity>
-                              )
-                            )}
-                          </View>
-                        </View>
-                      );
-                    })}
                   </View>
-                )}
+
+                  {/* Inline error — mirrors web's historyActionError */}
+                  {historyActionError ? (
+                    <View style={styles.inlineErrorBox}>
+                      <Text style={styles.inlineErrorText}>{historyActionError}</Text>
+                    </View>
+                  ) : null}
+
+                  {isHistoryLoading ? (
+                    <View style={styles.emptyState}>
+                      <ActivityIndicator color={Colors.orange600} />
+                      <Text style={styles.emptyStateText}>Loading history...</Text>
+                    </View>
+                  ) : prescriptionHistory.length === 0 ? (
+                    <View style={styles.emptyState}>
+                      <Ionicons name="medical-outline" size={40} color={Colors.gray300} />
+                      <Text style={styles.emptyStateTitle}>No drug history</Text>
+                      <Text style={styles.emptyStateText}>This patient has no drug history yet.</Text>
+                    </View>
+                  ) : (
+                    prescriptionHistory.map(rx =>
+                      rx.items.map((item, index) => {
+                        const itemKey = getPrescriptionItemKey(rx.id, item.drugId, index);
+                        const issued = isPrescriptionItemIssued(rx, index);
+                        const issuing = issuingKeys.includes(itemKey);
+                        // Admin only sees Mark As Issued, and only for consultation-sourced items
+                        const showMarkAsIssued = isAdminView && rx.source === 'consultation';
+
+                        return (
+                          <View key={itemKey} style={styles.historyRow}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                              <Text style={styles.historyDrug} numberOfLines={1}>{item.drugName}</Text>
+                              <Text style={styles.historyDate}>{new Date(rx.prescribedAt).toLocaleDateString()}</Text>
+                            </View>
+                            <Text style={{ fontSize: 11, color: Colors.gray500, marginTop: 2 }}>
+                              {item.dosage} · {item.frequency} · {item.duration} · Qty: {item.quantity}
+                            </Text>
+                            {item.instructions ? (
+                              <Text style={{ fontSize: 10, color: Colors.gray400, marginTop: 1, fontStyle: 'italic' }}>
+                                {item.instructions}
+                              </Text>
+                            ) : null}
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 }}>
+                              <Text style={{ fontSize: 10, color: Colors.gray400 }}>By {rx.prescribedBy}</Text>
+                              {showMarkAsIssued && (
+                                issued ? (
+                                  <View style={styles.issuedBadge}>
+                                    <Ionicons name="checkmark-circle" size={12} color={Colors.green700} />
+                                    <Text style={styles.issuedText}>Issued</Text>
+                                  </View>
+                                ) : (
+                                  <TouchableOpacity
+                                    style={[styles.markIssuedBtn, issuing && { opacity: 0.6 }]}
+                                    onPress={() => void handleMarkAsIssued(rx, item.drugId, index)}
+                                    disabled={issuing}
+                                  >
+                                    <Text style={styles.markIssuedText}>
+                                      {issuing ? 'Updating...' : 'Mark As Issued'}
+                                    </Text>
+                                  </TouchableOpacity>
+                                )
+                              )}
+                            </View>
+                          </View>
+                        );
+                      })
+                    )
+                  )}
+                </View>
               </>
             )}
           </>
-        ) : (
-          /* Stock Management Tab — Admin only */
+        )}
+
+        {/* ── STOCK TAB — Admin only ── */}
+        {activeTab === 'stock' && (
           <View style={styles.stockCard}>
             <View style={styles.historyHeader}>
               <Text style={styles.historyTitle}>Drug Inventory</Text>
-              <View style={styles.historyBadge}><Text style={styles.historyBadgeText}>{drugs.length} Drugs</Text></View>
+              <View style={styles.historyBadge}>
+                <Text style={styles.historyBadgeText}>{drugs.length} Drugs</Text>
+              </View>
             </View>
             {drugs.length === 0 ? (
               <View style={styles.emptyState}>
                 <Ionicons name="medical-outline" size={40} color={Colors.gray300} />
                 <Text style={styles.emptyStateText}>No drugs in inventory</Text>
               </View>
-            ) : (
-              drugs.map(d => (
-                <View key={d.id} style={[styles.stockRow, d.currentStock < d.reorderLevel && { backgroundColor: Colors.red50 }]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.stockName}>{d.name}</Text>
-                    <Text style={styles.stockMeta}>{d.category} · {d.dosageForm} · {d.strength}</Text>
-                    <Text style={styles.stockMeta}>Reorder: {d.reorderLevel}</Text>
-                  </View>
-                  <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                    {editingStockId === d.id ? (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <TextInput
-                          style={styles.stockEditInput}
-                          value={stockInputValue}
-                          onChangeText={setStockInputValue}
-                          keyboardType="numeric"
-                          autoFocus
-                          selectTextOnFocus
-                        />
-                        <TouchableOpacity
-                          style={styles.stockSaveBtn}
-                          onPress={() => handleUpdateStock(d.id)}
-                          disabled={updatingStockId === d.id}
-                        >
-                          {updatingStockId === d.id
-                            ? <ActivityIndicator size="small" color={Colors.white} />
-                            : <Text style={styles.stockSaveBtnText}>Save</Text>
-                          }
-                        </TouchableOpacity>
-                        <TouchableOpacity onPress={() => { setEditingStockId(null); setStockInputValue(''); }}>
-                          <Ionicons name="close" size={18} color={Colors.gray500} />
-                        </TouchableOpacity>
-                      </View>
-                    ) : (
-                      <>
-                        <Text style={[styles.stockCount, d.currentStock < d.reorderLevel && { color: Colors.red600 }]}>{d.currentStock}</Text>
-                        {d.currentStock < d.reorderLevel ? (
-                          <View style={styles.lowBadge}><Text style={styles.lowBadgeText}>Low</Text></View>
-                        ) : (
-                          <Text style={{ fontSize: 10, color: Colors.green600, fontWeight: '600' }}>In Stock</Text>
-                        )}
-                        <TouchableOpacity
-                          style={styles.editStockBtn}
-                          onPress={() => { setEditingStockId(d.id); setStockInputValue(String(d.currentStock)); }}
-                        >
-                          <Ionicons name="pencil-outline" size={12} color={Colors.orange600} />
-                          <Text style={styles.editStockText}>Update</Text>
-                        </TouchableOpacity>
-                      </>
-                    )}
-                  </View>
+            ) : drugs.map(d => (
+              <View
+                key={d.id}
+                style={[styles.stockRow, d.currentStock < d.reorderLevel && { backgroundColor: Colors.red50 }]}
+              >
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.stockName}>{d.name}</Text>
+                  <Text style={styles.stockMeta}>
+                    {d.category ? `${d.category} · ` : ''}{d.form} · {d.strength}
+                  </Text>
+                  <Text style={styles.stockMeta}>Reorder: {d.reorderLevel}</Text>
                 </View>
-              ))
-            )}
+                <View style={{ alignItems: 'flex-end', gap: 4 }}>
+                  {editingStockId === d.id ? (
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <TextInput
+                        style={styles.stockEditInput}
+                        value={stockInputValue}
+                        onChangeText={setStockInputValue}
+                        keyboardType="numeric"
+                        autoFocus
+                        selectTextOnFocus
+                      />
+                      <TouchableOpacity
+                        style={styles.stockSaveBtn}
+                        onPress={() => handleUpdateStock(d.id)}
+                        disabled={updatingStockId === d.id}
+                      >
+                        {updatingStockId === d.id
+                          ? <ActivityIndicator size="small" color={Colors.white} />
+                          : <Text style={styles.stockSaveBtnText}>Save</Text>}
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => { setEditingStockId(null); setStockInputValue(''); }}>
+                        <Ionicons name="close" size={18} color={Colors.gray500} />
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <>
+                      <Text style={[styles.stockCount, d.currentStock < d.reorderLevel && { color: Colors.red600 }]}>
+                        {d.currentStock}
+                      </Text>
+                      {d.currentStock < d.reorderLevel ? (
+                        <View style={styles.lowBadge}><Text style={styles.lowBadgeText}>Low</Text></View>
+                      ) : (
+                        <Text style={{ fontSize: 10, color: Colors.green600, fontWeight: '600' }}>In Stock</Text>
+                      )}
+                      <TouchableOpacity
+                        style={styles.editStockBtn}
+                        onPress={() => { setEditingStockId(d.id); setStockInputValue(String(d.currentStock)); }}
+                      >
+                        <Ionicons name="pencil-outline" size={12} color={Colors.orange600} />
+                        <Text style={styles.editStockText}>Update</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </View>
+              </View>
+            ))}
           </View>
         )}
+
       </ScrollView>
     </KeyboardAvoidingView>
   );
 }
+
+// ─── Field component ──────────────────────────────────────────────────────────
 
 function Field({ label, value, onChange, error, multiline, placeholder, keyboardType }: {
   label: string; value: string; onChange: (v: string) => void;
@@ -441,8 +769,9 @@ function Field({ label, value, onChange, error, multiline, placeholder, keyboard
       <Text style={{ fontSize: 13, fontWeight: '500', color: Colors.gray700, marginBottom: 6 }}>{label}</Text>
       <TextInput
         style={[fStyles.input, multiline && fStyles.multiline, error ? { borderColor: Colors.red300 } : null]}
-        value={value} onChangeText={onChange} placeholder={placeholder} placeholderTextColor={Colors.gray400}
-        multiline={multiline} textAlignVertical={multiline ? 'top' : 'center'} keyboardType={keyboardType ?? 'default'}
+        value={value} onChangeText={onChange} placeholder={placeholder}
+        placeholderTextColor={Colors.gray400} multiline={multiline}
+        textAlignVertical={multiline ? 'top' : 'center'} keyboardType={keyboardType ?? 'default'}
       />
       {error ? <Text style={{ fontSize: 11, color: Colors.red500, marginTop: 3 }}>{error}</Text> : null}
     </View>
@@ -454,12 +783,14 @@ const fStyles = StyleSheet.create({
   multiline: { minHeight: 80 },
 });
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.gray50 },
   content: { padding: 16, paddingBottom: 40 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { fontSize: 13, color: Colors.gray500, marginTop: 8 },
-  warningBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: Colors.red50, borderRadius: 0, borderLeftWidth: 4, borderLeftColor: Colors.red400, padding: 12, marginBottom: 12 },
+  warningBox: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, backgroundColor: Colors.red50, borderLeftWidth: 4, borderLeftColor: Colors.red400, padding: 12, marginBottom: 12 },
   warningTitle: { fontSize: 13, fontWeight: '700', color: Colors.red800, marginBottom: 2 },
   warningText: { fontSize: 12, color: Colors.red700 },
   tabRow: { flexDirection: 'row', marginBottom: 16, borderBottomWidth: 1, borderBottomColor: Colors.gray200 },
@@ -473,6 +804,8 @@ const styles = StyleSheet.create({
   sectionLabel: { fontSize: 14, fontWeight: '500', color: Colors.gray900, marginBottom: 12 },
   successBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.green50, padding: 14, borderRadius: 12, marginTop: 12, borderWidth: 1, borderColor: Colors.green100 },
   successText: { color: Colors.green800, fontSize: 13, fontWeight: '500' },
+  inlineErrorBox: { margin: 16, marginBottom: 0, backgroundColor: Colors.red50, borderRadius: 8, borderWidth: 1, borderColor: Colors.red200, paddingHorizontal: 14, paddingVertical: 10 },
+  inlineErrorText: { fontSize: 13, color: Colors.red700 },
   emptyPrescription: { backgroundColor: Colors.white, borderRadius: 16, padding: 32, borderWidth: 2, borderStyle: 'dashed', borderColor: Colors.gray300, alignItems: 'center', marginTop: 12 },
   emptyText: { fontSize: 13, color: Colors.gray500, marginBottom: 16 },
   addFirstBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: Colors.orange600, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 10 },
@@ -510,5 +843,6 @@ const styles = StyleSheet.create({
   stockSaveBtn: { backgroundColor: Colors.orange600, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8 },
   stockSaveBtnText: { fontSize: 12, fontWeight: '700', color: Colors.white },
   emptyState: { alignItems: 'center', paddingVertical: 40 },
-  emptyStateText: { fontSize: 14, color: Colors.gray500, marginTop: 8 },
+  emptyStateTitle: { fontSize: 14, fontWeight: '600', color: Colors.gray900, marginTop: 8 },
+  emptyStateText: { fontSize: 13, color: Colors.gray500, marginTop: 4 },
 });

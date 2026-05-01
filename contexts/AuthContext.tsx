@@ -10,7 +10,7 @@ interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (payload: LoginPayload) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -98,11 +98,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const logout = () => {
+  const logout = async () => {
     setUser(null);
-    clearAuthTokens().catch(() => {});
-    AsyncStorage.removeItem(USER_KEY).catch(() => {});
-    api.auth.logout().catch(() => {});
+    try {
+      await api.auth.logout();
+    } catch (error) {
+      console.error('Logout request failed:', error);
+      await clearAuthTokens();
+    } finally {
+      await AsyncStorage.removeItem(USER_KEY);
+    }
   };
 
   return (

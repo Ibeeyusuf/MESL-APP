@@ -57,15 +57,6 @@ const ANESTHESIA_OPTIONS = [
   { label: 'Topical', value: 'Topical' },
 ];
 
-// Health Practitioner — matches web dropdown
-const PRACTITIONER_OPTIONS = [
-  { label: 'Select practitioner', value: '' },
-  { label: 'Ibrahim Wambai', value: 'Ibrahim Wambai' },
-  { label: 'Nasiru Usman', value: 'Nasiru Usman' },
-  { label: 'Adamu Mohammed', value: 'Adamu Mohammed' },
-  { label: 'Murtala Umar', value: 'Murtala Umar' },
-];
-
 // Complication options — matches web COMPLICATION_OPTIONS exactly
 const COMPLICATION_OPTIONS = [
   { label: 'Select a complication', value: '' },
@@ -117,7 +108,6 @@ function SurgeryHistoryTable({ records }: { records: SurgeryRecord[] }) {
         <Text style={[tableStyles.headerCell, { flex: 1.4 }]}>DATE</Text>
         <Text style={[tableStyles.headerCell, { flex: 2 }]}>PROCEDURE</Text>
         <Text style={[tableStyles.headerCell, { flex: 0.8 }]}>EYE</Text>
-        <Text style={[tableStyles.headerCell, { flex: 0.7 }]}>DURATION</Text>
         <Text style={[tableStyles.headerCell, { flex: 1.6 }]}>SURGEON</Text>
         <Text style={[tableStyles.headerCell, { flex: 1.2 }]}>STATUS</Text>
       </View>
@@ -153,11 +143,6 @@ function SurgeryHistoryTable({ records }: { records: SurgeryRecord[] }) {
             <View style={tableStyles.eyeBadge}>
               <Text style={tableStyles.eyeBadgeText}>{record.eyeOperated}</Text>
             </View>
-          </View>
-
-          {/* Duration */}
-          <View style={[tableStyles.cell, { flex: 0.7 }]}>
-            <Text style={tableStyles.cellText}>{record.durationMinutes} min</Text>
           </View>
 
           {/* Surgeon + Nurse */}
@@ -206,7 +191,6 @@ export default function SurgeryScreen() {
   const [checkingRec, setCheckingRec] = useState(false);
   const [form, setForm] = useState({
     surgeryDate: getTodayDate(),
-    healthPractitioner: '',
     surgeryType: '',
     surgeryOthers: '',
     iolType: '',
@@ -214,7 +198,6 @@ export default function SurgeryScreen() {
     iolPowerLeft: '',
     eyeOperated: '',
     anesthesiaType: '',
-    durationMinutes: '',
     hasComplications: false,
     complication: '',
     complicationOthers: '',
@@ -276,10 +259,10 @@ export default function SurgeryScreen() {
 
   const resetForm = () => {
     setForm({
-      surgeryDate: getTodayDate(), healthPractitioner: '',
+      surgeryDate: getTodayDate(),
       surgeryType: '', surgeryOthers: '', iolType: '',
       iolPowerRight: '', iolPowerLeft: '',
-      eyeOperated: '', anesthesiaType: '', durationMinutes: '',
+      eyeOperated: '', anesthesiaType: '',
       hasComplications: false, complication: '', complicationOthers: '',
       surgicalFinding: '', surgicalFindingOthers: '',
       notes: '', surgeonId: '', scrubNurseId: '', anesthetistId: '',
@@ -298,12 +281,10 @@ export default function SurgeryScreen() {
     if (!patient) return;
     const e: Record<string, string> = {};
     if (!form.surgeryDate) e.surgeryDate = 'Required';
-    if (!form.healthPractitioner) e.healthPractitioner = 'Required';
     if (!form.surgeryType) e.surgeryType = 'Required';
     if (form.surgeryType === 'Other' && !form.surgeryOthers.trim()) e.surgeryOthers = 'Please specify surgery type';
     if (!form.eyeOperated) e.eyeOperated = 'Required';
     if (!form.anesthesiaType) e.anesthesiaType = 'Required';
-    if (!form.durationMinutes || Number(form.durationMinutes) <= 0) e.durationMinutes = 'Required';
     if (!form.surgeonId) e.surgeonId = 'Required';
     if (!form.scrubNurseId) e.scrubNurseId = 'Required';
     if (!form.anesthetistId) e.anesthetistId = 'Required';
@@ -332,24 +313,33 @@ export default function SurgeryScreen() {
       }
 
       const inferred = inferProcedureType(resolvedSurgeryType);
-      await api.surgeries.create(patient.id, {
+      
+      const payload: any = {
         surgeryDate: new Date(form.surgeryDate).toISOString(),
-        healthPractitioner: form.healthPractitioner,
         procedureType: inferred,
         surgeryType: resolvedSurgeryType,
-        iolType: showIolDetails ? (form.iolType || undefined) : undefined,
-        iolPowerRight: showIolDetails ? (form.iolPowerRight || undefined) : undefined,
-        iolPowerLeft: showIolDetails ? (form.iolPowerLeft || undefined) : undefined,
         eyeOperated: form.eyeOperated,
         anesthesiaType: form.anesthesiaType,
-        durationMinutes: Number(form.durationMinutes),
         hasComplications: form.hasComplications,
-        complicationDetails: form.hasComplications ? complicationDetails : undefined,
         notes: form.notes.trim() || undefined,
         surgeonId: form.surgeonId,
         scrubNurseId: form.scrubNurseId,
         anesthetistId: form.anesthetistId,
-      });
+      };
+
+      // Only add IOL fields if applicable
+      if (showIolDetails) {
+        if (form.iolType) payload.iolType = form.iolType;
+        if (form.iolPowerRight) payload.iolPowerRight = form.iolPowerRight;
+        if (form.iolPowerLeft) payload.iolPowerLeft = form.iolPowerLeft;
+      }
+
+      // Only add complication details if there are complications
+      if (form.hasComplications && complicationDetails) {
+        payload.complicationDetails = complicationDetails;
+      }
+      
+      await api.surgeries.create(patient.id, payload);
       const sRes = (await api.surgeries.list(patient.id)) as { data?: any[] };
       setHistory((sRes.data ?? []).map(mapApiSurgeryToUi));
       setSuccess(`Surgery recorded for ${patient.firstName}`);
@@ -399,19 +389,34 @@ export default function SurgeryScreen() {
             {/* Surgery Details */}
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>Surgery Details</Text>
-              <Field label="Surgery Date *" value={form.surgeryDate} onChange={v => handleChange('surgeryDate', v)} error={errors.surgeryDate} placeholder="YYYY-MM-DD" />
-              <PickerModal label="Health Practitioner *" value={form.healthPractitioner} options={PRACTITIONER_OPTIONS} onChange={v => handleChange('healthPractitioner', v)} error={errors.healthPractitioner} />
+              <Field 
+                label="Surgery Date *" 
+                value={form.surgeryDate} 
+                onChange={v => handleChange('surgeryDate', v)} 
+                error={errors.surgeryDate} 
+                placeholder="YYYY-MM-DD" 
+              />
               <View style={{ height: 8 }} />
               <View style={styles.row}>
                 <View style={{ flex: 1 }}>
-                  <PickerModal label="Eye Operated *" value={form.eyeOperated} options={EYE_OPTIONS} onChange={v => handleChange('eyeOperated', v)} error={errors.eyeOperated} />
+                  <PickerModal 
+                    label="Eye Operated *" 
+                    value={form.eyeOperated} 
+                    options={EYE_OPTIONS} 
+                    onChange={v => handleChange('eyeOperated', v)} 
+                    error={errors.eyeOperated} 
+                  />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <PickerModal label="Anesthesia *" value={form.anesthesiaType} options={ANESTHESIA_OPTIONS} onChange={v => handleChange('anesthesiaType', v)} error={errors.anesthesiaType} />
+                  <PickerModal 
+                    label="Anesthesia *" 
+                    value={form.anesthesiaType} 
+                    options={ANESTHESIA_OPTIONS} 
+                    onChange={v => handleChange('anesthesiaType', v)} 
+                    error={errors.anesthesiaType} 
+                  />
                 </View>
               </View>
-              <View style={{ height: 8 }} />
-              <Field label="Duration (minutes) *" value={form.durationMinutes} onChange={v => handleChange('durationMinutes', v)} error={errors.durationMinutes} keyboardType="numeric" placeholder="45" />
             </View>
 
             {/* Surgery Type */}
@@ -449,14 +454,29 @@ export default function SurgeryScreen() {
             {showIolDetails && (
               <View style={styles.iolBox}>
                 <Text style={styles.iolTitle}>Type of IOL</Text>
-                <PickerModal label="IOL Type" value={form.iolType} options={IOL_TYPE_OPTIONS} onChange={v => handleChange('iolType', v)} />
+                <PickerModal 
+                  label="IOL Type" 
+                  value={form.iolType} 
+                  options={IOL_TYPE_OPTIONS} 
+                  onChange={v => handleChange('iolType', v)} 
+                />
                 <View style={{ height: 8 }} />
                 <View style={styles.row}>
                   <View style={{ flex: 1 }}>
-                    <PickerModal label="IOL Power - Right Eye (D)" value={form.iolPowerRight} options={IOL_POWER_OPTIONS} onChange={v => handleChange('iolPowerRight', v)} />
+                    <PickerModal 
+                      label="IOL Power - Right Eye (D)" 
+                      value={form.iolPowerRight} 
+                      options={IOL_POWER_OPTIONS} 
+                      onChange={v => handleChange('iolPowerRight', v)} 
+                    />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <PickerModal label="IOL Power - Left Eye (D)" value={form.iolPowerLeft} options={IOL_POWER_OPTIONS} onChange={v => handleChange('iolPowerLeft', v)} />
+                    <PickerModal 
+                      label="IOL Power - Left Eye (D)" 
+                      value={form.iolPowerLeft} 
+                      options={IOL_POWER_OPTIONS} 
+                      onChange={v => handleChange('iolPowerLeft', v)} 
+                    />
                   </View>
                 </View>
               </View>
@@ -465,11 +485,29 @@ export default function SurgeryScreen() {
             {/* Surgical Team */}
             <View style={styles.card}>
               <Text style={styles.sectionTitle}>Surgical Team</Text>
-              <PickerModal label="Surgeon *" value={form.surgeonId} options={staffOptions(surgeons)} onChange={v => handleChange('surgeonId', v)} error={errors.surgeonId} />
+              <PickerModal 
+                label="Surgeon *" 
+                value={form.surgeonId} 
+                options={staffOptions(surgeons)} 
+                onChange={v => handleChange('surgeonId', v)} 
+                error={errors.surgeonId} 
+              />
               <View style={{ height: 8 }} />
-              <PickerModal label="Scrub Nurse *" value={form.scrubNurseId} options={staffOptions(nurses)} onChange={v => handleChange('scrubNurseId', v)} error={errors.scrubNurseId} />
+              <PickerModal 
+                label="Scrub Nurse *" 
+                value={form.scrubNurseId} 
+                options={staffOptions(nurses)} 
+                onChange={v => handleChange('scrubNurseId', v)} 
+                error={errors.scrubNurseId} 
+              />
               <View style={{ height: 8 }} />
-              <PickerModal label="Anesthetist *" value={form.anesthetistId} options={staffOptions(anesthetists)} onChange={v => handleChange('anesthetistId', v)} error={errors.anesthetistId} />
+              <PickerModal 
+                label="Anesthetist *" 
+                value={form.anesthetistId} 
+                options={staffOptions(anesthetists)} 
+                onChange={v => handleChange('anesthetistId', v)} 
+                error={errors.anesthetistId} 
+              />
             </View>
 
             {/* Complications */}
@@ -554,10 +592,20 @@ export default function SurgeryScreen() {
 
             {/* Notes */}
             <View style={styles.card}>
-              <Field label="Additional Notes (Optional)" value={form.notes} onChange={v => handleChange('notes', v)} multiline placeholder="Any other observations or special notes..." />
+              <Field 
+                label="Additional Notes (Optional)" 
+                value={form.notes} 
+                onChange={v => handleChange('notes', v)} 
+                multiline 
+                placeholder="Any other observations or special notes..." 
+              />
             </View>
 
-            <TouchableOpacity style={[styles.submitBtn, submitting && { opacity: 0.6 }]} onPress={handleSubmit} disabled={submitting}>
+            <TouchableOpacity 
+              style={[styles.submitBtn, submitting && { opacity: 0.6 }]} 
+              onPress={handleSubmit} 
+              disabled={submitting}
+            >
               {submitting ? <ActivityIndicator color={Colors.white} /> : <Text style={styles.submitText}>Record Surgery</Text>}
             </TouchableOpacity>
 
@@ -597,7 +645,11 @@ function Field({ label, value, onChange, error, multiline, placeholder, keyboard
 }
 
 const fStyles = StyleSheet.create({
-  input: { backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.gray300, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, fontSize: 15, color: Colors.gray900 },
+  input: { 
+    backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.gray300, 
+    borderRadius: 12, paddingHorizontal: 14, paddingVertical: 13, 
+    fontSize: 15, color: Colors.gray900 
+  },
   multiline: { minHeight: 80 },
 });
 
@@ -653,10 +705,16 @@ const styles = StyleSheet.create({
   content: { padding: 16, paddingBottom: 40 },
   loadingBox: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 16, marginTop: 12 },
   loadingText: { fontSize: 13, color: Colors.gray500 },
-  warningBox: { flexDirection: 'row', alignItems: 'flex-start', backgroundColor: Colors.orange50, borderRadius: 12, padding: 14, marginTop: 12, borderWidth: 1, borderColor: Colors.orange200 },
+  warningBox: { 
+    flexDirection: 'row', alignItems: 'flex-start', backgroundColor: Colors.orange50, 
+    borderRadius: 12, padding: 14, marginTop: 12, borderWidth: 1, borderColor: Colors.orange200 
+  },
   warningTitle: { fontSize: 13, fontWeight: '700', color: Colors.orange800 },
   warningText: { fontSize: 12, color: Colors.orange700, marginTop: 2 },
-  successBox: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.green50, padding: 14, borderRadius: 12, marginTop: 12, borderWidth: 1, borderColor: Colors.green100 },
+  successBox: { 
+    flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: Colors.green50, 
+    padding: 14, borderRadius: 12, marginTop: 12, borderWidth: 1, borderColor: Colors.green100 
+  },
   successText: { color: Colors.green800, fontSize: 13, fontWeight: '500' },
   card: { backgroundColor: Colors.white, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: Colors.gray100, marginTop: 12 },
   sectionTitle: { fontSize: 15, fontWeight: '700', color: Colors.gray900, marginBottom: 12 },

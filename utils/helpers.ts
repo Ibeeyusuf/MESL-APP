@@ -66,6 +66,7 @@ export function mapApiRoleToUiRole(apiRole: string): MobileRole {
   const m: Record<string, MobileRole> = {
     // Handle API format (old uppercase)
     ADMIN: 'Admin',
+    SEN_ADMIN: 'Sen Admin',
     DOCTOR: 'Doctor',
     SURGEON: 'Surgeon',
     SCRUB_NURSE: 'Scrub Nurse',
@@ -74,6 +75,7 @@ export function mapApiRoleToUiRole(apiRole: string): MobileRole {
     DATA_ENTRY: 'Data Entry',
     // Handle UI format (direct)
     Admin: 'Admin',
+    'Sen Admin': 'Sen Admin',
     Doctor: 'Doctor',
     Surgeon: 'Surgeon',
     'Scrub Nurse': 'Scrub Nurse',
@@ -109,11 +111,35 @@ export function mapApiPatientToUi(p: any): Patient {
 }
 
 // ── VA mapper ──
+export function mapApiVaStageToUi(stage?: string): VisualAcuityRecord['stage'] {
+  const m: Record<string, VisualAcuityRecord['stage']> = {
+    PRESENTING: 'Presenting',
+    UNAIDED: 'Unaided',
+    PINHOLE: 'Pinhole',
+    AIDED: 'Aided',
+    Presenting: 'Presenting',
+    Unaided: 'Unaided',
+    Pinhole: 'Pinhole',
+    Aided: 'Aided',
+  };
+  return stage ? (m[stage] ?? 'Presenting') : 'Presenting';
+}
+
+export function mapUiVaStageToApi(stage: VisualAcuityRecord['stage']): string {
+  const m: Record<VisualAcuityRecord['stage'], string> = {
+    Presenting: 'PRESENTING',
+    Unaided: 'UNAIDED',
+    Pinhole: 'PINHOLE',
+    Aided: 'AIDED',
+  };
+  return m[stage];
+}
+
 export function mapApiVaToUi(item: any): VisualAcuityRecord {
   return {
     id: item.id,
     patientId: item.patientId,
-    stage: item.stage ?? 'Presenting',
+    stage: mapApiVaStageToUi(item.stage),
     rightEye: item.rightEye,
     leftEye: item.leftEye,
     reasonForPoorVision: item.reasonForPoorVision ?? undefined,
@@ -217,19 +243,29 @@ export function mapStageToApi(v: PostOpStage): string {
 }
 
 export function mapApiPostOpToUi(item: any): PostOperativeRecord {
+  const resolved = item.resolved ?? {};
   return {
     id: item.id,
     patientId: item.patientId,
     surgeryId: item.surgeryId,
     stage: mapStageFromApi(item.stage),
     followUpDate: item.followUpDate,
+    healthPractitioner: item.healthPractitioner ?? undefined,
+    firstVARight: item.firstVARight ?? undefined,
+    firstVALeft: item.firstVALeft ?? undefined,
     unaidedVA_Right: item.unaidedVARight ?? '',
     unaidedVA_Left: item.unaidedVALeft ?? '',
     pinholeVA_Right: item.pinholeVARight ?? undefined,
     pinholeVA_Left: item.pinholeVALeft ?? undefined,
     aidedVA_Right: item.aidedVARight ?? undefined,
     aidedVA_Left: item.aidedVALeft ?? undefined,
-    reasonForPoorVision: item.reasonForPoorVision ?? undefined,
+    reasonForPoorVision: item.reasonForPoorVision ?? resolved.reasonForPoorVision ?? undefined,
+    preOpReason: item.preOpReason ?? resolved.preOpReason ?? undefined,
+    preOpOthers: item.preOpOthers ?? resolved.preOpOthers ?? undefined,
+    surgicalComplication: item.surgicalComplication ?? resolved.surgicalComplication ?? undefined,
+    surgicalOthers: item.surgicalOthers ?? resolved.surgicalOthers ?? undefined,
+    pinholeImprovement: item.pinholeImprovement ?? resolved.pinholeImprovement ?? undefined,
+    pinholeLineNumber: item.pinholeLineNumber ?? resolved.pinholeLineNumber ?? undefined,
     sequelae: (item.sequelae ?? []) as Sequelae[],
     notes: item.notes ?? undefined,
     recordedAt: item.recordedAt ?? item.createdAt ?? new Date().toISOString(),

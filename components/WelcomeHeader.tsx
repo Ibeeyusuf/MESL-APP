@@ -7,7 +7,7 @@ import type { User } from '@/types';
 
 interface WelcomeHeaderProps {
   user: User | undefined;
-  onLogout: () => void;
+  onLogout: () => Promise<void>;
 }
 
 export function WelcomeHeader({ user, onLogout }: WelcomeHeaderProps) {
@@ -21,7 +21,7 @@ export function WelcomeHeader({ user, onLogout }: WelcomeHeaderProps) {
           text: 'Yes',
           style: 'destructive',
           onPress: () => {
-            onLogout();
+            void onLogout();
 
             if (Platform.OS === 'android') {
               BackHandler.exitApp();

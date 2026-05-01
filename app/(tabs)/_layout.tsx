@@ -1,11 +1,12 @@
 import React, { useEffect } from 'react';
-import { Tabs, router } from 'expo-router';
-import { View, Text, TouchableOpacity } from 'react-native';
+import { Tabs } from 'expo-router';
+import { ActivityIndicator, View, Text, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/contexts/AuthContext';
 import { ScrollableTabBar } from '@/components/ScrollableTabBar';
 import { WelcomeHeader } from '@/components/WelcomeHeader';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { MobileRole } from '@/types';
 import type { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 
@@ -41,6 +42,7 @@ const TAB_DEFS: TabDef[] = [
 // Universal tab bar that filters hidden tabs
 function UniversalTabBar(props: BottomTabBarProps) {
   const { state, descriptors, navigation } = props;
+  const insets = useSafeAreaInsets();
   
   const visibleRoutes = state.routes.filter(route => ALLOWED_TABS_REF.tabs.has(route.name));
 
@@ -51,10 +53,19 @@ function UniversalTabBar(props: BottomTabBarProps) {
 
   // Default tab bar implementation for few tabs
   return (
-    <View style={{ flexDirection: 'row', backgroundColor: Colors.white, borderTopWidth: 1, borderTopColor: Colors.gray200 }}>
-      {visibleRoutes.map((route, index) => {
+    <View
+      style={{
+        flexDirection: 'row',
+        backgroundColor: Colors.white,
+        borderTopWidth: 1,
+        borderTopColor: Colors.gray200,
+        paddingBottom: Math.max(insets.bottom, 6),
+        paddingTop: 4,
+      }}
+    >
+      {visibleRoutes.map((route) => {
         const { options } = descriptors[route.key];
-        const isFocused = state.index === route.key;
+        const isFocused = state.routes[state.index]?.key === route.key;
         const label = (options.tabBarLabel ?? options.title ?? route.name) as string;
 
         return (
@@ -90,12 +101,6 @@ export default function TabsLayout() {
   const role = user?.role;
   const isPatientOnlyRole = !!role && PATIENT_ONLY_ROLES.includes(role);
 
-  useEffect(() => {
-    if (!isLoading && isAuthenticated && isPatientOnlyRole) {
-      router.replace('/(tabs)/patients');
-    }
-  }, [isLoading, isAuthenticated, isPatientOnlyRole]);
-
   // Update allowed tabs when role changes
   useEffect(() => {
     if (role) {
@@ -105,10 +110,19 @@ export default function TabsLayout() {
     }
   }, [role]);
 
-  if (isLoading || !isAuthenticated || !user || !role) return <View style={{ flex: 1, backgroundColor: '#f3f4f6' }} />;
+  if (isLoading || !user || !role) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#f3f4f6', alignItems: 'center', justifyContent: 'center' }}>
+        <ActivityIndicator color={Colors.primaryLight} />
+      </View>
+    );
+  }
 
+  // For patient-only roles: start on the patients tab and hide the Home tab
+  // using href:null. No navigation call needed from the layout — no loop risk.
   return (
     <Tabs
+      initialRouteName={isPatientOnlyRole ? 'patients' : 'index'}
       tabBar={(props) => <UniversalTabBar {...props} />}
       screenOptions={{
         header: () => <WelcomeHeader user={user} onLogout={logout} />,
@@ -126,6 +140,8 @@ export default function TabsLayout() {
           options={{
             title: tab.title,
             tabBarIcon: ({ color, size }) => <Ionicons name={tab.icon} size={size} color={color} />,
+            // Hide the Home tab for roles that should only see patients
+            ...(tab.name === 'index' && isPatientOnlyRole ? { href: null } : {}),
           }}
         />
       ))}

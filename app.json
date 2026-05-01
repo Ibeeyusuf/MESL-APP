@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "MESL",
+    "name": "MESL Outreach",
     "slug": "mesl-mobile",
     "splash": {
       "image": "./assets/splash.png",
@@ -9,7 +9,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "96b62d05-d43b-487d-8bba-1cb92ef6fbbd"
+        "projectId": "441b8745-e510-45f5-8579-63abfc8ac6ae"
       }
     }
   }

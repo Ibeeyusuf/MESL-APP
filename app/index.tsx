@@ -38,13 +38,6 @@ export default function LoginScreen() {
   const [error, setError] = useState('');
   const [activeDropdown, setActiveDropdown] = useState<'role' | 'centre' | null>(null);
 
-  // If already authenticated, redirect to tabs
-  useEffect(() => {
-    if (!authLoading && isAuthenticated) {
-      router.replace('/(tabs)');
-    }
-  }, [authLoading, isAuthenticated, router]);
-
   // Load login options on mount — use API's signInAs list for roles
   useEffect(() => {
     let mounted = true;
@@ -56,7 +49,10 @@ export default function LoginScreen() {
         // FIX: use signInAs from the API response, just like the web version does
         if (options.signInAs?.length) {
           const filteredRoles = (options.signInAs as string[]).filter(
-            (roleName) => roleName.trim().toLowerCase() !== 'super admin'
+            (roleName) => {
+              const normalized = roleName.trim().toLowerCase().replace(/_/g, ' ');
+              return normalized !== 'super admin' && normalized !== 'sen admin';
+            }
           );
 
           if (filteredRoles.length) {
@@ -132,6 +128,7 @@ export default function LoginScreen() {
       setIsSubmitting(false);
     }
   };
+
 
   if (authLoading || isInitializing) {
     return (

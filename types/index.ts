@@ -1,7 +1,7 @@
 // ── Roles ──
-export type MobileRole = 'Admin' | 'Doctor' | 'Surgeon' | 'Scrub Nurse' | 'Anesthetist' | 'Support Staff' | 'Data Entry';
+export type MobileRole = 'Admin' | 'Sen Admin' | 'Doctor' | 'Surgeon' | 'Scrub Nurse' | 'Anesthetist' | 'Support Staff' | 'Data Entry';
 
-export const MOBILE_ROLES: MobileRole[] = ['Admin', 'Doctor', 'Surgeon', 'Scrub Nurse', 'Anesthetist', 'Support Staff'];
+export const MOBILE_ROLES: MobileRole[] = ['Admin', 'Sen Admin', 'Doctor', 'Surgeon', 'Scrub Nurse', 'Anesthetist', 'Support Staff'];
 
 export interface Centre {
   id: string;
@@ -140,6 +140,9 @@ export interface PostOperativeRecord {
   surgeryId: string;
   stage: PostOpStage;
   followUpDate: string;
+  healthPractitioner?: string;
+  firstVARight?: string;
+  firstVALeft?: string;
   unaidedVA_Right: string;
   unaidedVA_Left: string;
   pinholeVA_Right?: string;
@@ -147,6 +150,12 @@ export interface PostOperativeRecord {
   aidedVA_Right?: string;
   aidedVA_Left?: string;
   reasonForPoorVision?: string;
+  preOpReason?: string;
+  preOpOthers?: string;
+  surgicalComplication?: string;
+  surgicalOthers?: string;
+  pinholeImprovement?: string;
+  pinholeLineNumber?: string;
   sequelae?: Sequelae[];
   notes?: string;
   recordedAt: string;

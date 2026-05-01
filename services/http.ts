@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const API_BASE_URL =
-  'https://carereach-data-system-architecture-api-production.up.railway.app/api/v1';
+  'https://api.meslfoundationoutreach.org/api/v1';
 
 const ACCESS_TOKEN_KEY = 'carereach_access_token';
 const REFRESH_TOKEN_KEY = 'carereach_refresh_token';
