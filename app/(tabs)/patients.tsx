@@ -27,33 +27,54 @@ function formatRelativeTime(dateString: string): string {
 
 export default function PatientsScreen() {
   const { user } = useAuth();
-  const [patients, setPatients] = useState<Patient[]>([]);
+  const [allPatients, setAllPatients] = useState<Patient[]>([]);
   const [query, setQuery] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Only Doctor role can access VA and Consult from patient cards
   const isDoctor = user?.role === 'Doctor';
 
-  const load = useCallback(async (q: string) => {
-    setLoading(true);
+  // Fetch all patients — paginate through all pages so search covers everyone
+  const load = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true); else setLoading(true);
     try {
-      const params = q.trim()
-        ? `search=${encodeURIComponent(q.trim())}&page=1&limit=40`
-        : 'page=1&limit=40';
-      const res = (await api.patients.list(params)) as { data?: any[] };
-      setPatients((res.data ?? []).map(mapApiPatientToUi));
+      let page = 1;
+      const collected: Patient[] = [];
+      while (true) {
+        const res = (await api.patients.list(`page=${page}&limit=100`)) as { data?: any[]; total?: number };
+        const batch = (res.data ?? []).map(mapApiPatientToUi);
+        collected.push(...batch);
+        // Stop when we get a short page (last page) or nothing
+        if (batch.length < 100) break;
+        page++;
+        // Safety cap — stop after 20 pages (2000 patients)
+        if (page > 20) break;
+      }
+      setAllPatients(collected);
     } catch {
-      setPatients([]);
-    } finally { setLoading(false); }
+      setAllPatients([]);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
 
-  useEffect(() => { load(''); }, []);
+  useEffect(() => { load(); }, []);
 
-  useEffect(() => {
-    const t = setTimeout(() => load(query), 400);
-    return () => clearTimeout(t);
-  }, [query]);
+  // Client-side filtering — search by name, phone, or patient code
+  const patients = query.trim()
+    ? allPatients.filter(p => {
+        const q = query.trim().toLowerCase();
+        const fullName = `${p.firstName} ${p.surname}`.toLowerCase();
+        return (
+          fullName.includes(q) ||
+          (p.patientCode ?? '').toLowerCase().includes(q) ||
+          (p.phone ?? '').toLowerCase().includes(q)
+        );
+      })
+    : allPatients;
 
   const renderPatient = ({ item }: { item: Patient }) => {
     const expanded = expandedId === item.id;
@@ -172,6 +193,8 @@ export default function PatientsScreen() {
           keyExtractor={p => p.id}
           renderItem={renderPatient}
           contentContainerStyle={{ padding: 16, paddingBottom: 100 }}
+          onRefresh={() => load(true)}
+          refreshing={refreshing}
           ListEmptyComponent={
             <View style={styles.empty}>
               <Ionicons name="search" size={40} color={Colors.gray300} />

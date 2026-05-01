@@ -99,15 +99,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = async () => {
+    // Clear local state and storage FIRST — immediately, before any network call.
+    // This way even if the app is closed or the API hangs, the session is gone.
     setUser(null);
-    try {
-      await api.auth.logout();
-    } catch (error) {
-      console.error('Logout request failed:', error);
-    } finally {
-      await clearAuthTokens();
-      await AsyncStorage.removeItem(USER_KEY);
-    }
+    await clearAuthTokens();
+    await AsyncStorage.removeItem(USER_KEY);
+    // Fire the server-side logout in the background — we don't wait for it
+    api.auth.logout().catch(() => {});
   };
 
   return (
