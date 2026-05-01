@@ -58,7 +58,7 @@ type QuickAction = {
 
 const QUICK_ACTIONS: QuickAction[] = [
   { label: 'Register\nPatient', icon: 'person-add', route: '/(tabs)/register', bg: Colors.orange500, roles: ['Admin', 'Doctor'] },
-  { label: 'Search\nPatient', icon: 'search', route: '/(tabs)/patients', bg: Colors.indigo500, roles: ['Admin', 'Doctor', 'Support Staff'] },
+  { label: 'Search\nPatient', icon: 'search', route: '/(tabs)/patients', bg: Colors.indigo500, roles: ['Admin', 'Sen Admin', 'Doctor', 'Support Staff'] },
   { label: 'Visual\nAcuity', icon: 'eye', route: '/(tabs)/va', bg: Colors.purple500, roles: ['Doctor', 'Support Staff'] },
   { label: 'Consultation', icon: 'medkit', route: '/(tabs)/consult', bg: Colors.orange600, roles: ['Doctor'] },
   { label: 'Pre-Surgery', icon: 'clipboard', route: '/(tabs)/presurgery', bg: Colors.orange500, roles: ['Doctor'] },
@@ -79,98 +79,81 @@ export default function HomeScreen() {
   const loadDashboard = async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true); else setLoading(true);
     try {
-      // Patients
-      const pRes = (await api.patients.list('page=1&limit=100')) as { data?: any[]; total?: number };
-      const patients = pRes.data ?? [];
-      const patientIds = patients.map((p: any) => p.id);
-      const patientCodeById = new Map(patients.map((p: any) => [p.id, p.patientCode ?? p.id]));
+      // Stats — server-side aggregated report endpoints (accurate regardless of patient count)
+      const [demoRes, surgRes, followRes, vaRes, drugsRes] = await Promise.allSettled([
+        api.reports.demographics(),
+        api.reports.surgeryOutcomes(),
+        api.reports.followUpCompliance(),
+        api.reports.vaOutcomes(),
+        api.reports.drugsInventory(),
+      ]);
 
-      // Surgeries
-      const surgNested = await Promise.all(
-        patientIds.map(async (pid: string) => {
-          try { const r = (await api.surgeries.list(pid)) as { data?: any[] }; return r.data ?? []; } catch { return []; }
-        })
-      );
-      const surgeries = surgNested.flat();
-
-      // Consultations
-      const consultNested = await Promise.all(
-        patientIds.map(async (pid: string) => {
-          try { const r = (await api.consultations.list(pid)) as { data?: any[] }; return r.data ?? []; } catch { return []; }
-        })
-      );
-      const consultations = consultNested.flat();
-
-      // VA
-      const vaNested = await Promise.all(
-        patientIds.map(async (pid: string) => {
-          try { const r = (await api.visualAcuity.list(pid)) as { data?: any[] }; return r.data ?? []; } catch { return []; }
-        })
-      );
-      const vaRecords = vaNested.flat();
-
-      // Prescriptions
-      const rxNested = await Promise.all(
-        patientIds.map(async (pid: string) => {
-          try { const r = (await api.prescriptions.list(pid)) as { data?: any[] }; return r.data ?? []; } catch { return []; }
-        })
-      );
-      const prescriptions = rxNested.flat();
-
-      // Post-ops
-      const postOpsNested = await Promise.all(
-        surgeries.map(async (s: any) => {
-          try { const r = (await api.postOps.list(s.id)) as { data?: any[] }; return r.data ?? []; } catch { return []; }
-        })
-      );
-      const postOps = postOpsNested.flat();
-
-      // Drugs
-      let lowStockCount = 0;
-      try {
-        const dRes = (await api.drugs.list()) as { data?: any[] };
-        lowStockCount = (dRes.data ?? []).filter((d: any) => (d.currentStock ?? 0) < (d.reorderLevel ?? 0)).length;
-      } catch {}
-
-      // Compute stats
-      const now = new Date();
-      const thisMonthSurgeries = surgeries.filter((s: any) => {
-        const d = new Date(s.surgeryDate);
-        return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-      });
-      const week5Done = new Set(
-        postOps.filter((p: any) => (p.stage === 'Week5' || p.stage === 'Week 5')).map((p: any) => p.surgeryId)
-      );
+      const demo   = demoRes.status   === 'fulfilled' ? (demoRes.value   as any) : {};
+      const surg   = surgRes.status   === 'fulfilled' ? (surgRes.value   as any) : {};
+      const follow = followRes.status === 'fulfilled' ? (followRes.value as any) : {};
+      const va     = vaRes.status     === 'fulfilled' ? (vaRes.value     as any) : {};
+      const drugs  = drugsRes.status  === 'fulfilled' ? (drugsRes.value  as any) : {};
 
       setStats({
-        totalPatients: patients.length,
-        totalSurgeries: surgeries.length,
-        thisMonthSurgeries: thisMonthSurgeries.length,
-        pendingFollowUps: Math.max(0, surgeries.length - week5Done.size),
-        totalConsultations: consultations.length,
-        totalVAAssessments: vaRecords.length,
-        lowStockDrugs: lowStockCount,
-        totalPrescriptions: prescriptions.length,
+        totalPatients:      demo.totalPatients      ?? demo.total              ?? demo.count        ?? 0,
+        totalSurgeries:     surg.totalSurgeries     ?? surg.total              ?? surg.count        ?? 0,
+        thisMonthSurgeries: surg.thisMonthSurgeries ?? surg.thisMonth          ?? surg.currentMonth ?? 0,
+        pendingFollowUps:   Math.max(0, (follow.totalSurgeries ?? follow.total ?? 0) - (follow.week5Completed ?? follow.completed ?? 0)),
+        totalVAAssessments: va.totalAssessments     ?? va.total                ?? va.count          ?? 0,
+        totalConsultations: surg.totalConsultations ?? demo.totalConsultations ?? 0,
+        totalPrescriptions: surg.totalPrescriptions ?? demo.totalPrescriptions ?? 0,
+        lowStockDrugs:      drugs.lowStockCount     ?? drugs.lowStock          ?? drugs.belowReorder ?? 0,
       });
 
-      // Build activity feed
+      // Activity — fetch 100 patients then their records (matches web approach)
+      const pRes = (await api.patients.list('page=1&limit=100')) as { data?: any[] };
+      const patients = pRes.data ?? [];
+      const patientIds = patients.map((p: any) => p.id);
+      const patientCodeById = new Map<string, string>(
+        patients.map((p: any) => [p.id, p.patientCode ?? p.id])
+      );
+
+      // VA only for the 20 most recently registered patients (same as web)
+      const recentPatientIds = [...patients]
+        .sort((a: any, b: any) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime())
+        .slice(-20)
+        .map((p: any) => p.id);
+
+      const [surgNested, consultNested, vaNested] = await Promise.all([
+        Promise.allSettled(patientIds.map((pid: string) => api.surgeries.list(pid).catch(() => ({ data: [] })))),
+        Promise.allSettled(patientIds.map((pid: string) => api.consultations.list(pid).catch(() => ({ data: [] })))),
+        Promise.allSettled(recentPatientIds.map((pid: string) => api.visualAcuity.list(pid).catch(() => ({ data: [] })))),
+      ]);
+
+      const surgeries     = surgNested.flatMap(r    => r.status === 'fulfilled' ? ((r.value as any)?.data ?? []) : []);
+      const consultations = consultNested.flatMap(r => r.status === 'fulfilled' ? ((r.value as any)?.data ?? []) : []);
+      const vaRecords     = vaNested.flatMap(r      => r.status === 'fulfilled' ? ((r.value as any)?.data ?? []) : []);
+
       const acts: ActivityItem[] = [];
+
       patients.slice(-5).forEach((p: any) => {
         const ts = p.createdAt ?? new Date().toISOString();
-        acts.push({ id: `reg-${p.id}`, action: 'Patient Registered', patient: p.patientCode ?? p.id, time: formatTimeAgo(ts), user: p.createdBy?.fullName ?? 'Unknown', timestamp: new Date(ts).getTime() });
+        acts.push({ id: `reg-${p.id}`, action: 'Patient Registered', patient: p.patientCode ?? p.id, time: formatTimeAgo(ts), user: p.createdBy?.fullName ?? p.createdBy ?? 'Unknown', timestamp: new Date(ts).getTime() });
       });
+
       surgeries.slice(-5).forEach((s: any) => {
         const ts = s.recordedAt ?? s.createdAt ?? s.surgeryDate;
-        acts.push({ id: `surg-${s.id}`, action: 'Surgery Completed', patient: (patientCodeById.get(s.patientId) as string) ?? s.patientId, time: formatTimeAgo(ts), user: s.recordedBy?.fullName ?? 'Unknown', timestamp: new Date(ts).getTime() });
+        if (!ts) return;
+        acts.push({ id: `surg-${s.id}`, action: 'Surgery Completed', patient: patientCodeById.get(s.patientId) ?? s.patientId, time: formatTimeAgo(ts), user: s.recordedBy?.fullName ?? s.createdBy?.fullName ?? 'Unknown', timestamp: new Date(ts).getTime() });
       });
+
       consultations.slice(-5).forEach((c: any) => {
         const ts = c.consultedAt ?? c.createdAt ?? c.consultationDate;
-        acts.push({ id: `con-${c.id}`, action: 'Consultation', patient: (patientCodeById.get(c.patientId) as string) ?? c.patientId, time: formatTimeAgo(ts), user: c.consultedBy?.fullName ?? c.healthPractitioner ?? 'Unknown', timestamp: new Date(ts).getTime() });
+        if (!ts) return;
+        acts.push({ id: `con-${c.id}`, action: 'Consultation Recorded', patient: patientCodeById.get(c.patientId) ?? c.patientId, time: formatTimeAgo(ts), user: c.consultedBy?.fullName ?? c.healthPractitioner ?? 'Unknown', timestamp: new Date(ts).getTime() });
       });
+
       vaRecords.slice(-5).forEach((v: any) => {
         const ts = v.recordedAt ?? v.createdAt;
-        acts.push({ id: `va-${v.id}`, action: `VA (${v.stage ?? 'Presenting'})`, patient: (patientCodeById.get(v.patientId) as string) ?? v.patientId, time: formatTimeAgo(ts), user: v.recordedBy?.fullName ?? 'Unknown', timestamp: new Date(ts).getTime() });
+        if (!ts) return;
+        acts.push({ id: `va-${v.id}`, action: `VA Assessment (${v.stage ?? 'Presenting'})`, patient: patientCodeById.get(v.patientId) ?? v.patientId, time: formatTimeAgo(ts), user: v.recordedBy?.fullName ?? v.createdBy?.fullName ?? 'Unknown', timestamp: new Date(ts).getTime() });
       });
+
       acts.sort((a, b) => b.timestamp - a.timestamp);
       setActivity(acts.slice(0, 6));
     } catch {

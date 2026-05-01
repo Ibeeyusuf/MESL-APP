@@ -104,8 +104,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await api.auth.logout();
     } catch (error) {
       console.error('Logout request failed:', error);
-      await clearAuthTokens();
     } finally {
+      await clearAuthTokens();
       await AsyncStorage.removeItem(USER_KEY);
     }
   };
